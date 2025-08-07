@@ -1,0 +1,36 @@
+// manifest.json
+{
+  "name": "Reddit Comment Fetcher",
+  "version": "2.3",
+  "description": "Fetches and displays the last 5 Reddit comments when clicking the toolbar icon.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "tabs",
+    "https://*.reddit.com/*",
+    "https://shajirr.github.io/reddit-comment-scrambler-a/*"
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": true
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://shajirr.github.io/reddit-comment-scrambler-a/redirect.html*"],
+      "js": ["contentScript.js"]
+    },
+    {
+      "matches": ["https://*.reddit.com/*"],
+      "js": ["content.js"]
+    }
+  ],
+  "browser_action": {
+    "default_popup": "popup.html"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "reddit-comment-fetcher@example.com"
+    }
+  },
+  "manifest_version": 2
+}

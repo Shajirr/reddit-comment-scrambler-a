@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>OAuth Redirect</title>
+  <script>
+    window.onload = () => {
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get("code");
+      const state = params.get("state");
+      browser.runtime.sendMessage("reddit-comment-fetcher@example.com", {
+        action: "oauthCallback",
+        code,
+        state
+      }).then(() => {
+        window.close();
+      }).catch(error => {
+        console.error("Message send error:", error);
+        document.body.innerHTML = `<p>Error: ${error.message}</p>`;
+      });
+    };
+  </script>
+</head>
+<body>
+  <p>Redirecting...</p>
+</body>
+</html>

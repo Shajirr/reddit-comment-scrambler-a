@@ -12,7 +12,6 @@ if (code && state) {
     state: state
   }).then(() => {
     console.log("Message sent successfully");
-    // window.close() removed; tab will be closed by background script
   }).catch(error => {
     console.error("Error sending oauthCallback message:", error.message);
   });

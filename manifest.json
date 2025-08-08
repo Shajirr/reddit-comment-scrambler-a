@@ -1,15 +1,18 @@
-// manifest.json
 {
-  "name": "Reddit Comment Fetcher",
-  "version": "2.7",
-  "description": "Fetches the last 1500 Reddit comments and displays every 50th comment in a persistent tab on icon click.",
+  "manifest_version": 2,
+  "name": "Reddit Mass Comment Editor",
+  "version": "1.0",
+  "description": "A Firefox add-on to fetch, display, edit, and export Reddit comments.",
   "permissions": [
-    "activeTab",
+    "https://*.reddit.com/*",
     "storage",
     "tabs",
-    "https://*.reddit.com/*",
-    "https://shajirr.github.io/reddit-comment-scrambler-a/*"
+    "activeTab"
   ],
+  "browser_action": {
+    "default_icon": "icon.png",
+    "default_title": "Reddit Mass Comment Editor"
+  },
   "background": {
     "scripts": ["background.js"],
     "persistent": true
@@ -18,19 +21,10 @@
     {
       "matches": ["https://shajirr.github.io/reddit-comment-scrambler-a/redirect.html*"],
       "js": ["contentScript.js"]
-    },
-    {
-      "matches": ["https://*.reddit.com/*"],
-      "js": ["content.js"]
     }
   ],
-  "browser_action": {
-    "default_icon": "icon.png"
-  },
-  "browser_specific_settings": {
-    "gecko": {
-      "id": "reddit-comment-fetcher@example.com"
-    }
-  },
-  "manifest_version": 2
+  "web_accessible_resources": [
+    "dashboard.html",
+    "wordlist.txt"
+  ]
 }

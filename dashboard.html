@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Reddit Mass Comment Editor Dashboard</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 10px auto;
+      padding: 20px;
+      background-color: #f4f4f9;
+    }
+    h1 {
+      text-align: center;
+      color: #333;
+      margin-top: 0;
+    }
+    .controls {
+      margin-bottom: 10px;
+      padding: 10px;
+      background-color: #fff;
+      border-radius: 5px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    }
+    .controls button {
+      padding: 10px 20px;
+      margin: 5px;
+      cursor: pointer;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 3px;
+    }
+    .controls button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    .controls input {
+      padding: 8px;
+      margin: 5px;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+    }
+    .controls input[type="number"] {
+      width: 70px;
+    }
+    .controls input[type="text"] {
+      width: 120px;
+    }
+    .controls input[type="checkbox"] {
+      margin: 5px;
+    }
+    .controls label {
+      margin: 5px;
+    }
+    #status, #username {
+      margin: 5px 0;
+      padding: 8px;
+      background-color: #e9ecef;
+      border-radius: 3px;
+    }
+    #console {
+      max-height: 200px;
+      overflow-y: auto;
+      background-color: #fff;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      margin-bottom: 10px;
+      line-height: 1.2;
+    }
+    #console p {
+      margin: 2px 0;
+    }
+    #comments {
+      background-color: #fff;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+    }
+    .comment {
+      border-bottom: 1px solid #eee;
+      padding: 8px 0;
+      margin-bottom: 5px;
+    }
+    .comment p {
+      margin: 4px 0;
+    }
+    .comment button {
+      padding: 5px 10px;
+      margin: 5px 0;
+      cursor: pointer;
+      background-color: #28a745;
+      color: white;
+      border: none;
+      border-radius: 3px;
+    }
+    .error {
+      color: red;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>Reddit Mass Comment Editor Dashboard</h1>
+  <div class="controls">
+    <button id="authButton">Authenticate</button>
+    <button id="deleteTokenButton" disabled>Delete auth token</button>
+    <button id="exportButton" disabled>Export loaded comments</button>
+    <div>
+      <button id="fetchButton">Load</button>
+      <input type="number" id="commentCount" value="100" min="1" max="10000">
+      <label>Comments</label>
+    </div>
+    <div>
+      <input type="checkbox" id="afterCommentFilter">
+      <label for="afterCommentFilter">After comment:</label>
+      <input type="text" id="afterCommentInput" placeholder="comment ID">
+    </div>
+    <div>
+      <input type="checkbox" id="subredditFilter">
+      <label for="subredditFilter">Filter by Subreddit:</label>
+      <input type="text" id="subredditInput" placeholder="e.g., pcmasterrace">
+    </div>
+    <div>
+      <label for="commentIdInput">Comment ID </label>
+      <input type="text" id="commentIdInput" placeholder="e.g., abc123">
+      <button id="loadCommentByIdButton">Load comment by ID</button>
+    </div>
+    <div id="status">Checking authentication status...</div>
+    <div id="username">Username: Not authenticated</div>
+  </div>
+  <div id="console"></div>
+  <div id="comments"></div>
+  <script src="dashboard.js"></script>
+</body>
+</html>

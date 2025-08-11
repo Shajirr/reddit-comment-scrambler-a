@@ -179,15 +179,20 @@
     <div id="status">Checking authentication status...</div>
     <div id="username">Username: Not authenticated</div>
 	<div class="api-counter-row">
-		<div style="display: flex; width: 100%; justify-content: space-between; align-items: center;">
-			<div style="flex: 1;">
-			  <span id="apiRequestCounter">API Requests Made: 0</span>
-			  <button id="resetApiCounterButton" style="margin-left: 10px; padding: 5px 10px; font-size: 12px;">Reset Counter</button>
-			</div>
-			<div style="flex: 1; text-align: right;">
-				<span id="rateLimitStatus">Rate Limit: 2000ms (default)</span>
-			</div>
-		</div>
+    <div style="display: flex; width: 100%; align-items: center;">
+      <div style="flex: 1;">
+        <span id="apiRequestCounter">API Requests Made: 0</span>
+        <button id="resetApiCounterButton" style="margin-left: 10px; padding: 5px 10px; font-size: 12px;">Reset Counter</button>
+      </div>
+      <div style="flex: 1; display: flex; flex-direction: column; align-items: flex-end;">
+        <div style="margin-bottom: 6px;">
+          <span id="rateLimitRemaining">Requests remaining: --</span>
+        </div>
+        <div>
+          <span id="rateLimitStatus">Delay for edits: 2000ms (default)</span>
+        </div>
+      </div>
+    </div>
     </div>
   </div>
   <div class="dangerous-section">

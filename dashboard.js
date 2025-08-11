@@ -353,7 +353,16 @@ browser.runtime.onMessage.addListener((message) => {
   } else if (message.action === 'updateRateLimitStatus') {
 	const rateLimitStatusDiv = document.getElementById('rateLimitStatus');
 	if (rateLimitStatusDiv) {
-      rateLimitStatusDiv.textContent = `Rate Limit: ${message.delay}ms${message.temporary ? ' (temporary)' : ' (default)'}`;
+      rateLimitStatusDiv.textContent = `Delay for edits: ${message.delay}ms${message.temporary ? ' (temporary)' : ' (default)'}`;
+    }
+  } else if (message.action === 'updateRateLimitHeaders') {
+    const rateLimitRemainingDiv = document.getElementById('rateLimitRemaining');
+    if (rateLimitRemainingDiv) {
+      if (message.remaining !== null) {
+        rateLimitRemainingDiv.textContent = `Requests remaining: ${message.remaining}`;
+      } else {
+        rateLimitRemainingDiv.textContent = 'Requests remaining: --';
+      }
     }
   }
 });

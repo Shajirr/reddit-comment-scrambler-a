@@ -23,6 +23,46 @@ const RAISED_DELAY_DURATION = 60000; // 1 minute
 const PAUSE_DURATION = 60000; // 1 minute pause
 const MAX_CONSECUTIVE_ERRORS = 3;
 
+// Tracking rate limit headers
+let rateLimitRemaining = null;
+let rateLimitUsed = null;
+let rateLimitReset = null;
+
+// Function to parse and store rate limit headers
+function parseRateLimitHeaders(response) {
+  const remaining = response.headers.get('x-ratelimit-remaining');
+  const used = response.headers.get('x-ratelimit-used');
+  const reset = response.headers.get('x-ratelimit-reset');
+  
+  if (remaining !== null) {
+    rateLimitRemaining = Math.floor(parseFloat(remaining)); // Remove decimal part
+  }
+  if (used !== null) {
+    rateLimitUsed = Math.floor(parseFloat(used));
+  }
+  if (reset !== null) {
+    rateLimitReset = parseInt(reset);
+  }
+  // Send update to dashboard
+  updateRateLimitHeaderDisplay();
+}
+
+// Send rate limit header info to dashboard
+async function updateRateLimitHeaderDisplay() {
+  if (isDashboardTabReady && dashboardTabId) {
+    try {
+      await browser.tabs.sendMessage(dashboardTabId, {
+        action: "updateRateLimitHeaders",
+        remaining: rateLimitRemaining,
+        used: rateLimitUsed,
+        reset: rateLimitReset
+      });
+    } catch (err) {
+      console.error("Failed to send rate limit headers update:", err.message);
+    }
+  }
+}
+
 // Reset delay to default and clear timer
 function resetToDefaultDelay() {
   currentDelay = DEFAULT_DELAY;
@@ -284,6 +324,7 @@ async function exchangeCodeForToken(code, state) {
       },
       body: body
     });
+    parseRateLimitHeaders(response);
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Token exchange HTTP error:", response.status, errorText);
@@ -321,6 +362,7 @@ async function refreshToken(refreshToken) {
       },
       body: `grant_type=refresh_token&refresh_token=${refreshToken}`
     });
+    parseRateLimitHeaders(response);
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Token refresh HTTP error:", response.status, errorText);
@@ -355,9 +397,10 @@ async function getUsername(accessToken) {
     const response = await fetch("https://oauth.reddit.com/api/v1/me", {
       headers: {
         "Authorization": `Bearer ${accessToken}`,
-        "User-Agent": "RedditCommentFetcher/1.0"
+        "User-Agent": "RedditMassCommentEditor/1.0"
       }
     });
+    parseRateLimitHeaders(response);
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Fetch username HTTP error:", response.status, errorText);
@@ -450,7 +493,7 @@ async function editComment(accessToken, commentId, newText) {
         text: newText
       }).toString()
     });
-    
+    parseRateLimitHeaders(response);
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Edit comment HTTP error:", response.status, errorText);
@@ -469,10 +512,10 @@ async function editComment(accessToken, commentId, newText) {
       throw error;
     }
     
-    // Success - reset consecutive error counter (but keep current delay and timer)
+    // Success - reset consecutive error counter, keep current delay and timer)
     consecutiveRateLimitErrors = 0;
     
-    // Rest of existing validation logic...
+    // Rest of existing validation logic
     if (!data.json || !data.json.data || !data.json.data.things || data.json.data.things.length === 0) {
       console.error("Invalid edit response structure:", data);
       throw new Error("Invalid response structure from Reddit API");
@@ -516,6 +559,7 @@ async function checkCommentExists(commentId) {
         "User-Agent": "RedditMassCommentEditor/1.0"
       }
     });
+    parseRateLimitHeaders(response);
     if (!response.ok) {
 	  const errorText = await response.text();
       console.error("Check comment exists HTTP error:", response.status, errorText);
@@ -543,9 +587,10 @@ async function fetchCommentById(accessToken, commentId) {
     const response = await fetch(`https://oauth.reddit.com/api/info?id=t1_${commentId}`, {
       headers: {
         "Authorization": `Bearer ${accessToken}`,
-        "User-Agent": "RedditCommentFetcher/1.0"
+        "User-Agent": "RedditMassCommentEditor/1.0"
       }
     });
+    parseRateLimitHeaders(response);
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Fetch comment by ID HTTP error:", response.status, errorText);
@@ -590,7 +635,7 @@ async function deleteComment(accessToken, commentId) {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${accessToken}`,
-        "User-Agent": "RedditCommentFetcher/1.0",
+        "User-Agent": "RedditMassCommentEditor/1.0",
         "Content-Type": "application/x-www-form-urlencoded"
       },
       body: new URLSearchParams({
@@ -598,6 +643,7 @@ async function deleteComment(accessToken, commentId) {
         id: `t1_${commentId}`
       }).toString()
     });
+    parseRateLimitHeaders(response);
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Delete comment HTTP error:", response.status, errorText);
@@ -648,9 +694,10 @@ async function fetchComments(accessToken, maxComments, afterCommentId) {
       const response = await fetch(endpoint, {
         headers: {
           "Authorization": `Bearer ${accessToken}`,
-          "User-Agent": "RedditCommentFetcher/1.0"
+          "User-Agent": "RedditMassCommentEditor/1.0"
         }
       });
+      parseRateLimitHeaders(response);
       if (!response.ok) {
         const errorText = await response.text();
         console.error("Fetch comments HTTP error:", response.status, errorText);
@@ -724,6 +771,7 @@ browser.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
     flushPendingStatusMessages();
 	// Send initial rate limit status
 	await sendRateLimitStatusUpdate();
+    await updateRateLimitHeaderDisplay();
     try {
       const accessToken = await getValidToken();
       if (accessToken) {

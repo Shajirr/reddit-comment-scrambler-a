@@ -215,6 +215,7 @@ function updateDisplayedComments() {
   const commentsToDisplay = subredditFilter && subredditInput ? filteredComments : allComments;
   commentCount = commentsToDisplay.length;
   statusDiv.textContent = `Showing ${commentCount} comments (Total fetched: ${allComments.length})`;
+  
   let displayComments;
   if (commentCount <= 50) {
     // Display all comments if 50 or fewer
@@ -233,18 +234,66 @@ function updateDisplayedComments() {
       displayComments.push(lastComment);
     }
   }
-  const html = displayComments
-    .map(comment => `
-      <div class="comment" data-comment-id="${comment.id}">
-        <strong>Comment #${comment.index}</strong> (ID: ${comment.id})<br>
-        <strong>Subreddit:</strong> ${comment.subreddit}<br>
-        <strong>Posted:</strong> ${comment.created}<br>
-        <p class="comment-body">${comment.body}</p>
-        ${comment.isSaved ? '<span class="saved-label">Saved</span>' : '<button class="randomizeButton">Randomize</button>'}
-      </div>
-    `)
-    .join('');
-  commentsDiv.innerHTML = html;
+  
+  // Clear existing content
+  while (commentsDiv.firstChild) {
+    commentsDiv.removeChild(commentsDiv.firstChild);
+  }
+  
+  // Create elements using DOM methods
+  displayComments.forEach(comment => {
+    const commentDiv = document.createElement('div');
+    commentDiv.className = 'comment';
+    commentDiv.setAttribute('data-comment-id', comment.id);
+
+    // Create comment header
+    const headerStrong = document.createElement('strong');
+    headerStrong.textContent = `Comment #${comment.index}`;
+    commentDiv.appendChild(headerStrong);
+    
+    const idText = document.createTextNode(` (ID: ${comment.id})`);
+    commentDiv.appendChild(idText);
+    commentDiv.appendChild(document.createElement('br'));
+
+    // Create subreddit info
+    const subredditStrong = document.createElement('strong');
+    subredditStrong.textContent = 'Subreddit:';
+    commentDiv.appendChild(subredditStrong);
+    
+    const subredditText = document.createTextNode(` ${comment.subreddit}`);
+    commentDiv.appendChild(subredditText);
+    commentDiv.appendChild(document.createElement('br'));
+
+    // Create posted info
+    const postedStrong = document.createElement('strong');
+    postedStrong.textContent = 'Posted:';
+    commentDiv.appendChild(postedStrong);
+    
+    const postedText = document.createTextNode(` ${comment.created}`);
+    commentDiv.appendChild(postedText);
+    commentDiv.appendChild(document.createElement('br'));
+
+    // Create comment body
+    const commentBodyP = document.createElement('p');
+    commentBodyP.className = 'comment-body';
+    commentBodyP.textContent = comment.body; // Safe text assignment
+    commentDiv.appendChild(commentBodyP);
+
+    // Add saved label or randomize button
+    if (comment.isSaved) {
+      const savedSpan = document.createElement('span');
+      savedSpan.className = 'saved-label';
+      savedSpan.textContent = 'Saved';
+      commentDiv.appendChild(savedSpan);
+    } else {
+      const randomizeBtn = document.createElement('button');
+      randomizeBtn.className = 'randomizeButton';
+      randomizeBtn.textContent = 'Randomize';
+      commentDiv.appendChild(randomizeBtn);
+    }
+
+    commentsDiv.appendChild(commentDiv);
+  });
 
   // Reattach randomize button listeners for non-saved comments
   document.querySelectorAll('.randomizeButton').forEach(button => {
@@ -373,11 +422,22 @@ browser.runtime.onMessage.addListener((message) => {
     consoleDiv.scrollTop = consoleDiv.scrollHeight;
   } else if (message.action === 'displayError') {
     statusDiv.textContent = '';
-    document.getElementById('comments').innerHTML = `<p class="error">Error: ${message.error}</p>`;
-    const p = document.createElement('p');
-    p.textContent = `${new Date().toLocaleTimeString()}: Error: ${message.error}`;
-    consoleDiv.appendChild(p);
-    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+    
+	const commentsDiv = document.getElementById('comments');
+	// Clear existing content
+	while (commentsDiv.firstChild) {
+		commentsDiv.removeChild(commentsDiv.firstChild);
+	}
+	// Create error element
+	const errorP = document.createElement('p');
+	errorP.className = 'error';
+	errorP.textContent = `Error: ${message.error}`; // Safe text assignment
+	commentsDiv.appendChild(errorP);
+
+	const p = document.createElement('p');
+	p.textContent = `${new Date().toLocaleTimeString()}: Error: ${message.error}`;
+	consoleDiv.appendChild(p);
+	consoleDiv.scrollTop = consoleDiv.scrollHeight;
   } else if (message.action === 'updateAuthStatus') {
     statusDiv.textContent = message.status;
     usernameDiv.textContent = message.username ? `Username: ${message.username}` : 'Username: Not authenticated';

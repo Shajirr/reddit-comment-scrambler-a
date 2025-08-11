@@ -1,1 +1,1 @@
-# reddit-comment-scrambler-a
+# reddit-mass-comment-editor

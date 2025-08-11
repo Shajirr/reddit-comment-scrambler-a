@@ -3,7 +3,7 @@ let allComments = []; // Store all fetched comments
 let filteredComments = []; // Store filtered comments for display and actions
 let safeWordsByLength = {};
 let wordListLoaded = false;
-let isProcessing = false; // Track mass randomization
+let isProcessing = false; // Track mass operations
 let abortController = null; // For stopping mass actions
 let apiRequestCount = 0; // Track API requests
 
@@ -122,12 +122,55 @@ async function randomizeComment(text) {
     .join('');
 }
 
+// Perform search and replace on comment text
+function performSearchReplace(text, searchTerm, replaceTerm, caseSensitive, wholeWords) {
+  let flags = 'g';
+  if (!caseSensitive) {
+    flags += 'i';
+  }
+  
+  let searchPattern;
+  if (wholeWords) {
+    // Escape special regex characters in search term
+    const escapedSearch = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    searchPattern = new RegExp(`\\b${escapedSearch}\\b`, flags);
+  } else {
+    // Escape special regex characters in search term
+    const escapedSearch = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    searchPattern = new RegExp(escapedSearch, flags);
+  }
+  
+  return text.replace(searchPattern, replaceTerm);
+}
+
+// Find comments that match the search criteria
+function findCommentsForReplacement(comments, searchTerm, caseSensitive, wholeWords) {
+  if (!searchTerm.trim()) {
+    return [];
+  }
+  
+  let flags = caseSensitive ? 'g' : 'gi';
+  let searchPattern;
+  
+  if (wholeWords) {
+    const escapedSearch = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    searchPattern = new RegExp(`\\b${escapedSearch}\\b`, flags);
+  } else {
+    const escapedSearch = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    searchPattern = new RegExp(escapedSearch, flags);
+  }
+  
+  return comments.filter(comment => {
+    if (comment.isSaved) return false; // Skip saved comments
+    return searchPattern.test(comment.body);
+  });
+}
 // Check if subreddit exists
 async function checkSubredditExists(subreddit) {
   try {
     const response = await fetch(`https://www.reddit.com/r/${subreddit}/about.json`, {
       method: 'GET',
-      headers: { 'User-Agent': 'RedditCommentEditor/1.0' }
+      headers: { "User-Agent": "RedditMassCommentEditor/1.0" }
     });
     if (!response.ok) {
       const errorData = await response.json();
@@ -209,7 +252,7 @@ function updateDisplayedComments() {
       if (isProcessing) {
         const consoleDiv = document.getElementById('console');
         const p = document.createElement('p');
-        p.textContent = `${new Date().toLocaleTimeString()}: Error: Mass randomization in progress, please wait or stop`;
+        p.textContent = `${new Date().toLocaleTimeString()}: Error: Mass operation in progress, please wait or stop`;
         consoleDiv.appendChild(p);
         consoleDiv.scrollTop = consoleDiv.scrollHeight;
         return;
@@ -574,7 +617,10 @@ document.getElementById('loadCommentByIdButton').addEventListener('click', async
 
 document.getElementById('dangerousActionsConfirm').addEventListener('change', () => {
   const randomizeAllButton = document.getElementById('randomizeAllButton');
-  randomizeAllButton.disabled = !document.getElementById('dangerousActionsConfirm').checked;
+  const editAllButton = document.getElementById('editAllButton');
+  const isChecked = document.getElementById('dangerousActionsConfirm').checked;
+  randomizeAllButton.disabled = !isChecked;
+  editAllButton.disabled = !isChecked;
 });
 
 document.getElementById('stopButton').addEventListener('click', () => {
@@ -582,13 +628,14 @@ document.getElementById('stopButton').addEventListener('click', () => {
     abortController.abort();
     const consoleDiv = document.getElementById('console');
     const p = document.createElement('p');
-    p.textContent = `${new Date().toLocaleTimeString()}: Mass randomization stopped by user`;
+    p.textContent = `${new Date().toLocaleTimeString()}: Mass operation stopped by user`;
     consoleDiv.appendChild(p);
     consoleDiv.scrollTop = consoleDiv.scrollHeight;
     isProcessing = false;
     abortController = null;
     document.getElementById('stopButton').disabled = true;
     document.getElementById('randomizeAllButton').disabled = !document.getElementById('dangerousActionsConfirm').checked;
+    document.getElementById('editAllButton').disabled = !document.getElementById('dangerousActionsConfirm').checked;
   }
 });
 
@@ -644,8 +691,10 @@ document.getElementById('randomizeAllButton').addEventListener('click', async ()
   abortController = new AbortController();
   const stopButton = document.getElementById('stopButton');
   const randomizeAllButton = document.getElementById('randomizeAllButton');
+  const editAllButton = document.getElementById('editAllButton');
   stopButton.disabled = false;
   randomizeAllButton.disabled = true;
+  editAllButton.disabled = true;
 
   const pStart = document.createElement('p');
   pStart.textContent = `${new Date().toLocaleTimeString()}: Starting mass randomization of ${commentsToRandomize.length} comments`;
@@ -722,6 +771,179 @@ document.getElementById('randomizeAllButton').addEventListener('click', async ()
     isProcessing = false;
     abortController = null;
     stopButton.disabled = true;
-    randomizeAllButton.disabled = !document.getElementById('dangerousActionsConfirm').checked;
+    const isConfirmed = document.getElementById('dangerousActionsConfirm').checked;
+    randomizeAllButton.disabled = !isConfirmed;
+    editAllButton.disabled = !isConfirmed;
+  }
+});
+
+document.getElementById('editAllButton').addEventListener('click', async () => {
+  const consoleDiv = document.getElementById('console');
+  const subredditFilter = document.getElementById('subredditFilter').checked;
+  const subredditInput = document.getElementById('subredditInput').value.trim();
+  const searchInput = document.getElementById('searchInput').value;
+  const replaceInput = document.getElementById('replaceInput').value;
+  const caseSensitive = document.getElementById('caseSensitiveCheck').checked;
+  const wholeWords = document.getElementById('wholeWordsCheck').checked;
+  
+  if (!document.getElementById('dangerousActionsConfirm').checked) {
+    const p = document.createElement('p');
+    p.textContent = `${new Date().toLocaleTimeString()}: Error: Please confirm you understand the risks of dangerous actions`;
+    consoleDiv.appendChild(p);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+    return;
+  }
+
+  if (!searchInput.trim()) {
+    const p = document.createElement('p');
+    p.textContent = `${new Date().toLocaleTimeString()}: Error: Please enter text to search for`;
+    consoleDiv.appendChild(p);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+    return;
+  }
+
+  // Find eligible comments first
+  const sourceComments = subredditFilter && subredditInput ? filteredComments : allComments;
+  const pSearching = document.createElement('p');
+  pSearching.textContent = `${new Date().toLocaleTimeString()}: Searching for comments containing "${searchInput}"...`;
+  consoleDiv.appendChild(pSearching);
+  consoleDiv.scrollTop = consoleDiv.scrollHeight;
+
+  const commentsToEdit = findCommentsForReplacement(sourceComments, searchInput, caseSensitive, wholeWords);
+
+  if (commentsToEdit.length === 0) {
+    const p = document.createElement('p');
+    p.textContent = `${new Date().toLocaleTimeString()}: No eligible comments found containing "${searchInput}"`;
+    consoleDiv.appendChild(p);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+    return;
+  }
+
+  const pFound = document.createElement('p');
+  pFound.textContent = `${new Date().toLocaleTimeString()}: Found ${commentsToEdit.length} comments containing "${searchInput}"`;
+  consoleDiv.appendChild(pFound);
+  consoleDiv.scrollTop = consoleDiv.scrollHeight;
+
+  const confirmEdit = window.confirm(`Are you sure you want to edit ${commentsToEdit.length} comments, replacing "${searchInput}" with "${replaceInput}"?`);
+  if (!confirmEdit) {
+    const p = document.createElement('p');
+    p.textContent = `${new Date().toLocaleTimeString()}: Mass edit cancelled`;
+    consoleDiv.appendChild(p);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+    return;
+  }
+
+  // Export backup of only comments that will be edited
+  const backupSuccess = exportComments(commentsToEdit, `reddit_comments_edit_backup`);
+  if (!backupSuccess) return;
+
+  // Wait for download to "complete" (approximation)
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  const confirmBackup = window.confirm(`Do you confirm that you have a valid backup and wish to proceed with editing ${commentsToEdit.length} comments?`);
+  if (!confirmBackup) {
+    const p = document.createElement('p');
+    p.textContent = `${new Date().toLocaleTimeString()}: Mass edit cancelled - backup not confirmed`;
+    consoleDiv.appendChild(p);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+    return;
+  }
+
+  isProcessing = true;
+  abortController = new AbortController();
+  const stopButton = document.getElementById('stopButton');
+  const randomizeAllButton = document.getElementById('randomizeAllButton');
+  const editAllButton = document.getElementById('editAllButton');
+  stopButton.disabled = false;
+  randomizeAllButton.disabled = true;
+  editAllButton.disabled = true;
+
+  const pStart = document.createElement('p');
+  pStart.textContent = `${new Date().toLocaleTimeString()}: Starting mass edit of ${commentsToEdit.length} comments`;
+  consoleDiv.appendChild(pStart);
+  consoleDiv.scrollTop = consoleDiv.scrollHeight;
+
+  try {
+    // Check token validity once before starting
+    const tokenResponse = await browser.runtime.sendMessage({ action: 'checkToken' });
+    console.log("Token response:", JSON.stringify(tokenResponse));
+    if (!tokenResponse || !tokenResponse.valid || !tokenResponse.accessToken) {
+      throw new Error('Invalid or expired authentication token');
+    }
+    const accessToken = tokenResponse.accessToken;
+
+    for (let i = 0; i < commentsToEdit.length; i++) {
+      if (abortController.signal.aborted) {
+        throw new Error('Mass edit stopped by user');
+      }
+      const comment = commentsToEdit[i];
+      const commentDiv = document.querySelector(`.comment[data-comment-id="${comment.id}"]`);
+      const commentBody = commentDiv ? commentDiv.querySelector('.comment-body') : null;
+      const originalComment = comment.body;
+	  
+      try {
+        const editedText = performSearchReplace(originalComment, searchInput, replaceInput, caseSensitive, wholeWords);
+        
+        // Only proceed if the text actually changed
+        if (editedText === originalComment) {
+          const p = document.createElement('p');
+          p.textContent = `${new Date().toLocaleTimeString()}: Skipped comment ID: ${comment.id} - no changes needed (${i + 1}/${commentsToEdit.length})`;
+          consoleDiv.appendChild(p);
+          consoleDiv.scrollTop = consoleDiv.scrollHeight;
+          continue;
+        }
+        
+        // Send to Reddit first
+        const editResponse = await browser.runtime.sendMessage({
+          action: 'editComment',
+          commentId: comment.id,
+          newText: editedText,
+          accessToken: accessToken
+        });
+        console.log("editComment response for", comment.id, ":", JSON.stringify(editResponse));
+        if (!editResponse.success) {
+          throw new Error(editResponse.error || `Failed to update comment ${comment.id} on Reddit`);
+        }
+        // Update UI and storage only on success
+        if (commentBody) {
+          commentBody.textContent = editedText;
+        }
+        const allComment = allComments.find(c => c.id === comment.id);
+        if (allComment) {
+          allComment.body = editedText;
+        }
+        const filteredComment = filteredComments.find(c => c.id === comment.id);
+        if (filteredComment) {
+          filteredComment.body = editedText;
+        }
+        const p = document.createElement('p');
+        p.textContent = `${new Date().toLocaleTimeString()}: Edited and updated comment ID: ${comment.id} (${i + 1}/${commentsToEdit.length})`;
+        consoleDiv.appendChild(p);
+        consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        // Rate limit delay (2000ms for safety)
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } catch (error) {
+        const p = document.createElement('p');
+        p.textContent = `${new Date().toLocaleTimeString()}: Error editing comment ID: ${comment.id} - ${error.message}`;
+        consoleDiv.appendChild(p);
+        consoleDiv.scrollTop = consoleDiv.scrollHeight;
+      }
+    }
+    const pDone = document.createElement('p');
+    pDone.textContent = `${new Date().toLocaleTimeString()}: Mass edit completed`;
+    consoleDiv.appendChild(pDone);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+  } catch (error) {
+    const pError = document.createElement('p');
+    pError.textContent = `${new Date().toLocaleTimeString()}: ${error.message}`;
+    consoleDiv.appendChild(pError);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+  } finally {
+    isProcessing = false;
+    abortController = null;
+    stopButton.disabled = true;
+    const isConfirmed = document.getElementById('dangerousActionsConfirm').checked;
+    randomizeAllButton.disabled = !isConfirmed;
+    editAllButton.disabled = !isConfirmed;
   }
 });

@@ -1,5 +1,5 @@
-const CLIENT_ID = "DOspouQ0Wv_lnJt4ogAkWA";
-const REDIRECT_URI = "https://shajirr.github.io/reddit-comment-scrambler-a/redirect.html";
+const CLIENT_ID = "HgQTMaSrLS4wYX2eZ-eR0Q";
+const REDIRECT_URI = "https://shajirr.github.io/reddit-mass-comment-editor/redirect.html";
 const SCOPES = "identity read history edit";
 
 console.log("Background script loaded");

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Reddit Mass Comment Editor Dashboard</title>
+  <title>Reddit Mass Comment Editor & Randomizer</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -98,6 +98,31 @@
       background-color: #cccccc;
       cursor: not-allowed;
     }
+    .replace-controls {
+      display: flex;
+	  flex-direction: column;
+      align-items: left;
+      gap: 10px;
+      margin: 10px 0;
+    }
+    .replace-controls input[type="text"] {
+      width: 400px;
+    }
+    .replace-controls input[type="checkbox"] {
+      margin: 0 5px;
+    }
+	.replace-controls > .input-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+	.replace-controls > .input-row > label {
+      min-width: 100px;
+      text-align: right;
+    }
+    .replace-controls label {
+      margin: 0;
+    }
     #console {
       max-height: 200px;
       overflow-y: auto;
@@ -150,7 +175,7 @@
   </style>
 </head>
 <body>
-  <h1>Reddit Mass Comment Editor Dashboard</h1>
+  <h1>Reddit Mass Comment Editor & Randomizer</h1>
   <div class="controls">
     <button id="authButton">Authenticate</button>
     <button id="deleteTokenButton" disabled>Delete auth token</button>
@@ -197,11 +222,35 @@
   </div>
   <div class="dangerous-section">
     <input type="checkbox" id="dangerousActionsConfirm">
-    <label for="dangerousActionsConfirm">I understand that the following actions can make irreversible changes to my account, unless I have a backup</label>
+    <label for="dangerousActionsConfirm">I understand that the following actions can make irreversible changes to my account,</br> 
+	unless I have a backup</label>
     <div>
       <button id="randomizeAllButton" disabled>Randomize all loaded comments</button>
-      <button id="stopButton" disabled>Stop</button>
     </div>
+    <div class="replace-controls">
+	<div class="input-row">
+      <label for="searchInput">Search for:</label>
+      <input type="text" id="searchInput" placeholder="text to find">
+	</div>
+	<div class="input-row">
+      <label for="replaceInput">Replace with:</label>
+      <input type="text" id="replaceInput" placeholder="replacement text">
+	</div>
+	<div>
+      <input type="checkbox" id="caseSensitiveCheck">
+      <label for="caseSensitiveCheck">Case sensitive</label>
+	</div>
+	<div>
+      <input type="checkbox" id="wholeWordsCheck">
+      <label for="wholeWordsCheck">Whole words only</label>
+    </div>
+	</div>
+	<div>
+	<button id="editAllButton" disabled>Edit all loaded comments</button>
+	</div>
+	<div>
+	<button id="stopButton" disabled>Stop</button>
+	</div>
   </div>
   <div id="console"></div>
   <div id="comments"></div>

@@ -3,6 +3,9 @@ let allComments = []; // Store all fetched comments
 let filteredComments = []; // Store filtered comments for display and actions
 let safeWordsByLength = {};
 let wordListLoaded = false;
+let isProcessing = false; // Track mass randomization
+let abortController = null; // For stopping mass actions
+let apiRequestCount = 0; // Track API requests
 
 // Load word list from wordlist.txt
 async function loadWordList() {
@@ -35,6 +38,12 @@ async function loadWordList() {
 // Combine random words to match target length
 function combineWordsToLength(targetLength, usedWords = []) {
   if (targetLength === 0) return '';
+  
+  // Handle single character case
+  if (targetLength === 1) {
+    return String.fromCharCode(97 + Math.floor(Math.random() * 26)); // Random lowercase letter
+  }
+  
   const availableLengths = Object.keys(safeWordsByLength)
     .map(Number)
     .filter(len => len <= targetLength && !usedWords.includes(len));
@@ -51,6 +60,24 @@ function combineWordsToLength(targetLength, usedWords = []) {
 // Get a random word with exact length, preserving case
 function getRandomWord(word) {
   const length = word.length;
+  
+  // Handle single characters specially
+  if (length === 1) {
+    const char = word[0];
+    if (/[a-zA-Z]/.test(char)) {
+      // Generate random letter preserving case
+      const isUpper = char === char.toUpperCase();
+      const randomLetter = String.fromCharCode(97 + Math.floor(Math.random() * 26)); // a-z
+      return isUpper ? randomLetter.toUpperCase() : randomLetter;
+    } else if (/\d/.test(char)) {
+      // Generate random digit
+      return Math.floor(Math.random() * 10).toString();
+    } else {
+      // Non-alphanumeric single character, return as-is
+      return char;
+    }
+  }
+  
   const words = safeWordsByLength[length];
   let randomWord;
   if (words && words.length > 0) {
@@ -100,7 +127,7 @@ async function checkSubredditExists(subreddit) {
   try {
     const response = await fetch(`https://www.reddit.com/r/${subreddit}/about.json`, {
       method: 'GET',
-      headers: { 'User-Agent': 'RedditCommentFetcher/1.0' }
+      headers: { 'User-Agent': 'RedditCommentEditor/1.0' }
     });
     if (!response.ok) {
       const errorData = await response.json();
@@ -112,7 +139,7 @@ async function checkSubredditExists(subreddit) {
     }
     return true;
   } catch (error) {
-    console.error('Subreddit check error:', error.message);
+    console.error(`Failed to check subreddit ${subreddit}:`, error.message);
     throw error;
   }
 }
@@ -123,6 +150,19 @@ function applySubredditFilter(subreddit) {
   filteredComments = allComments.filter(comment => comment.subreddit.toLowerCase() === subredditLower);
 }
 
+// Clear all loaded comments
+function clearLoadedComments() {
+  allComments = [];
+  filteredComments = [];
+  commentCount = 0;
+  updateDisplayedComments();
+  const consoleDiv = document.getElementById('console');
+  const p = document.createElement('p');
+  p.textContent = `${new Date().toLocaleTimeString()}: Cleared all loaded comments`;
+  consoleDiv.appendChild(p);
+  consoleDiv.scrollTop = consoleDiv.scrollHeight;
+  document.getElementById('exportButton').disabled = true;
+}
 // Update displayed comments
 function updateDisplayedComments() {
   const commentsDiv = document.getElementById('comments');
@@ -130,10 +170,8 @@ function updateDisplayedComments() {
   const subredditFilter = document.getElementById('subredditFilter').checked;
   const subredditInput = document.getElementById('subredditInput').value.trim();
   const commentsToDisplay = subredditFilter && subredditInput ? filteredComments : allComments;
-
   commentCount = commentsToDisplay.length;
   statusDiv.textContent = `Showing ${commentCount} comments (Total fetched: ${allComments.length})`;
-
   let displayComments;
   if (commentCount <= 50) {
     // Display all comments if 50 or fewer
@@ -152,7 +190,6 @@ function updateDisplayedComments() {
       displayComments.push(lastComment);
     }
   }
-
   const html = displayComments
     .map(comment => `
       <div class="comment" data-comment-id="${comment.id}">
@@ -160,15 +197,23 @@ function updateDisplayedComments() {
         <strong>Subreddit:</strong> ${comment.subreddit}<br>
         <strong>Posted:</strong> ${comment.created}<br>
         <p class="comment-body">${comment.body}</p>
-        <button class="randomizeButton">Randomize</button>
+        ${comment.isSaved ? '<span class="saved-label">Saved</span>' : '<button class="randomizeButton">Randomize</button>'}
       </div>
     `)
     .join('');
   commentsDiv.innerHTML = html;
 
-  // Reattach randomize button listeners
+  // Reattach randomize button listeners for non-saved comments
   document.querySelectorAll('.randomizeButton').forEach(button => {
     button.addEventListener('click', async () => {
+      if (isProcessing) {
+        const consoleDiv = document.getElementById('console');
+        const p = document.createElement('p');
+        p.textContent = `${new Date().toLocaleTimeString()}: Error: Mass randomization in progress, please wait or stop`;
+        consoleDiv.appendChild(p);
+        consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        return;
+      }
       const commentDiv = button.closest('.comment');
       const commentId = commentDiv.dataset.commentId;
       const commentBody = commentDiv.querySelector('.comment-body');
@@ -188,11 +233,14 @@ function updateDisplayedComments() {
           filteredComment.body = randomizedText;
         }
         // Send to Reddit
-        await browser.runtime.sendMessage({
+        const editResponse = await browser.runtime.sendMessage({
           action: 'editComment',
           commentId: commentId,
           newText: randomizedText
         });
+        if (!editResponse.success) {
+          throw new Error(editResponse.error);
+        }
         const consoleDiv = document.getElementById('console');
         const p = document.createElement('p');
         p.textContent = `${new Date().toLocaleTimeString()}: Randomized and updated comment ID: ${commentId}`;
@@ -209,6 +257,38 @@ function updateDisplayedComments() {
   });
 }
 
+// Export comments to JSON
+function exportComments(comments, filenamePrefix) {
+  const consoleDiv = document.getElementById('console');
+  if (comments.length === 0) {
+    const p = document.createElement('p');
+    p.textContent = `${new Date().toLocaleTimeString()}: No comments to export`;
+    consoleDiv.appendChild(p);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+    return false;
+  }
+  const json = JSON.stringify(comments, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${filenamePrefix}_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  const p = document.createElement('p');
+  p.textContent = `${new Date().toLocaleTimeString()}: Exported ${comments.length} comments`;
+  consoleDiv.appendChild(p);
+  consoleDiv.scrollTop = consoleDiv.scrollHeight;
+  return true;
+}
+
+// Update API request counter display
+function updateApiRequestCounter() {
+  const apiCounterDiv = document.getElementById('apiRequestCounter');
+  apiCounterDiv.textContent = `API Requests Made: ${apiRequestCount}`;
+}
 browser.runtime.getBackgroundPage().then(() => {
   browser.tabs.getCurrent().then(tab => {
     browser.runtime.sendMessage({
@@ -263,6 +343,18 @@ browser.runtime.onMessage.addListener((message) => {
     if (message.status === 'Valid token present' || message.status === 'Authentication successful') {
       document.getElementById('comments').innerHTML = '';
     }
+  } else if (message.action === 'updateApiRequestCounter') {
+    // Update the API request counter display
+    apiRequestCount = message.count;
+    updateApiRequestCounter();
+  } else if (message.action === 'incrementApiRequest') {
+    apiRequestCount += 1;
+    updateApiRequestCounter();
+  } else if (message.action === 'updateRateLimitStatus') {
+	const rateLimitStatusDiv = document.getElementById('rateLimitStatus');
+	if (rateLimitStatusDiv) {
+      rateLimitStatusDiv.textContent = `Rate Limit: ${message.delay}ms${message.temporary ? ' (temporary)' : ' (default)'}`;
+    }
   }
 });
 
@@ -278,42 +370,78 @@ document.getElementById('deleteTokenButton').addEventListener('click', () => {
   });
 });
 
+document.getElementById('clearCommentsButton').addEventListener('click', () => {
+  if (isProcessing) {
+    const consoleDiv = document.getElementById('console');
+    const p = document.createElement('p');
+    p.textContent = `${new Date().toLocaleTimeString()}: Cannot clear comments while processing is in progress`;
+    consoleDiv.appendChild(p);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+    return;
+  }
+  clearLoadedComments();
+});
+
+document.getElementById('resetApiCounterButton').addEventListener('click', async () => {
+  try {
+    const response = await browser.runtime.sendMessage({ action: 'resetApiRequestCounter' });
+  } catch (err) {
+    console.error('Failed to reset API counter:', err.message);
+	// Only show error messages in dashboard
+    const consoleDiv = document.getElementById('console');
+    const p = document.createElement('p');
+    p.textContent = `${new Date().toLocaleTimeString()}: Error resetting API counter: ${err.message}`;
+    consoleDiv.appendChild(p);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+  }
+});
+
 document.getElementById('fetchButton').addEventListener('click', async () => {
   const commentCountInput = document.getElementById('commentCount');
-  const maxComments = parseInt(commentCountInput.value);
-  const consoleDiv = document.getElementById('console');
+  const maxComments = parseInt(commentCountInput.value, 10);
   const afterCommentFilter = document.getElementById('afterCommentFilter').checked;
   const afterCommentInput = document.getElementById('afterCommentInput').value.trim();
-
-  if (isNaN(maxComments) || maxComments < 1 || maxComments > 10000) {
+  const consoleDiv = document.getElementById('console');
+  if (isProcessing) return;
+  document.getElementById('fetchButton').disabled = true;
+  try {
+    if (isNaN(maxComments) || maxComments < 1 || maxComments > 10000) {
+      const p = document.createElement('p');
+      p.textContent = `${new Date().toLocaleTimeString()}: Error: Please enter a number between 1 and 10,000`;
+      consoleDiv.appendChild(p);
+      consoleDiv.scrollTop = consoleDiv.scrollHeight;
+      return; 
+    }
+    if (afterCommentFilter && !afterCommentInput) {
+      const p = document.createElement('p');
+      p.textContent = `${new Date().toLocaleTimeString()}: Error: Please enter a comment ID`;
+      consoleDiv.appendChild(p);
+      consoleDiv.scrollTop = consoleDiv.scrollHeight;
+      document.getElementById('afterCommentFilter').checked = false;
+      return;
+    }
+    commentCount = 0;
+    allComments = [];
+    filteredComments = [];
+    document.getElementById('comments').innerHTML = '';
+    document.getElementById('exportButton').disabled = true;
+    const response = await browser.runtime.sendMessage({
+      action: 'fetchComments',
+      maxComments: maxComments,
+      afterCommentId: afterCommentFilter ? afterCommentInput : null
+    });
+    if (response && !response.success && response.error) {
+      throw new Error(response.error);
+    }
+  } catch (err) {
+    console.error('Failed to fetch comments:', err.message);
     const p = document.createElement('p');
-    p.textContent = `${new Date().toLocaleTimeString()}: Error: Please enter a number between 1 and 10,000`;
+    p.textContent = `${new Date().toLocaleTimeString()}: Error fetching comments: ${err.message}`;
     consoleDiv.appendChild(p);
     consoleDiv.scrollTop = consoleDiv.scrollHeight;
-    return;
+  } finally {
+    document.getElementById('fetchButton').disabled = false;
   }
-
-  if (afterCommentFilter && !afterCommentInput) {
-    const p = document.createElement('p');
-    p.textContent = `${new Date().toLocaleTimeString()}: Error: Please enter a comment ID`;
-    consoleDiv.appendChild(p);
-    consoleDiv.scrollTop = consoleDiv.scrollHeight;
-    document.getElementById('afterCommentFilter').checked = false;
-    return;
-  }
-
-  commentCount = 0;
-  allComments = [];
-  filteredComments = [];
-  document.getElementById('comments').innerHTML = '';
-  document.getElementById('exportButton').disabled = true;
-  browser.runtime.sendMessage({
-    action: 'fetchComments',
-    maxComments: maxComments,
-    afterCommentId: afterCommentFilter ? afterCommentInput : null
-  }).catch(err => {
-    console.error('Failed to send fetch comments message:', err.message);
-  });
 });
 
 document.getElementById('subredditFilter').addEventListener('change', async () => {
@@ -391,46 +519,200 @@ document.getElementById('exportButton').addEventListener('click', () => {
   const subredditFilter = document.getElementById('subredditFilter').checked;
   const subredditInput = document.getElementById('subredditInput').value.trim();
   const commentsToExport = subredditFilter && subredditInput ? filteredComments : allComments;
-  const consoleDiv = document.getElementById('console');
-
-  if (commentsToExport.length === 0) {
-    const p = document.createElement('p');
-    p.textContent = `${new Date().toLocaleTimeString()}: No comments to export`;
-    consoleDiv.appendChild(p);
-    consoleDiv.scrollTop = consoleDiv.scrollHeight;
-    return;
-  }
-  const json = JSON.stringify(commentsToExport, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `reddit_comments_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  const p = document.createElement('p');
-  p.textContent = `${new Date().toLocaleTimeString()}: Exported ${commentsToExport.length} comments${subredditFilter && subredditInput ? ` from r/${subredditInput}` : ''}`;
-  consoleDiv.appendChild(p);
-  consoleDiv.scrollTop = consoleDiv.scrollHeight;
+  exportComments(commentsToExport, `reddit_comments`);
 });
 
-document.getElementById('loadCommentByIdButton').addEventListener('click', () => {
+document.getElementById('loadCommentByIdButton').addEventListener('click', async () => {
   const commentIdInput = document.getElementById('commentIdInput');
   const commentId = commentIdInput.value.trim();
   const consoleDiv = document.getElementById('console');
-  if (!commentId) {
+  const exportButton = document.getElementById('exportButton');
+
+  if (isProcessing) return;
+  document.getElementById('loadCommentByIdButton').disabled = true;
+
+  try {
+    if (!commentId) {
+      const p = document.createElement('p');
+      p.textContent = `${new Date().toLocaleTimeString()}: Error: Please enter a comment ID`;
+      consoleDiv.appendChild(p);
+      consoleDiv.scrollTop = consoleDiv.scrollHeight;
+      return;
+    }
+	
+    const response = await browser.runtime.sendMessage({
+      action: 'fetchCommentById',
+      commentId: commentId
+    });
+	
+    console.log("Received response from background:", response);
+    
+    if (response && response.success) {
+      exportButton.disabled = false;
+    } else {
+      throw new Error(response?.error || 'Unknown error occurred');
+    }
+  } catch (err) {
+    console.error('Failed to fetch comment by ID:', err.message);
     const p = document.createElement('p');
-    p.textContent = `${new Date().toLocaleTimeString()}: Error: Please enter a valid comment ID`;
+    p.textContent = `${new Date().toLocaleTimeString()}: Error fetching comment ID ${commentId}: ${err.message}`;
+    consoleDiv.appendChild(p);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+  } finally {
+    document.getElementById('loadCommentByIdButton').disabled = false;
+  }
+});
+
+document.getElementById('dangerousActionsConfirm').addEventListener('change', () => {
+  const randomizeAllButton = document.getElementById('randomizeAllButton');
+  randomizeAllButton.disabled = !document.getElementById('dangerousActionsConfirm').checked;
+});
+
+document.getElementById('stopButton').addEventListener('click', () => {
+  if (isProcessing && abortController) {
+    abortController.abort();
+    const consoleDiv = document.getElementById('console');
+    const p = document.createElement('p');
+    p.textContent = `${new Date().toLocaleTimeString()}: Mass randomization stopped by user`;
+    consoleDiv.appendChild(p);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+    isProcessing = false;
+    abortController = null;
+    document.getElementById('stopButton').disabled = true;
+    document.getElementById('randomizeAllButton').disabled = !document.getElementById('dangerousActionsConfirm').checked;
+  }
+});
+
+document.getElementById('randomizeAllButton').addEventListener('click', async () => {
+  const consoleDiv = document.getElementById('console');
+  const subredditFilter = document.getElementById('subredditFilter').checked;
+  const subredditInput = document.getElementById('subredditInput').value.trim();
+  const commentsToRandomize = (subredditFilter && subredditInput ? filteredComments : allComments)
+    .filter(comment => !comment.isSaved);
+	
+  if (!document.getElementById('dangerousActionsConfirm').checked) {
+    const p = document.createElement('p');
+    p.textContent = `${new Date().toLocaleTimeString()}: Error: Please confirm you understand the risks of dangerous actions`;
     consoleDiv.appendChild(p);
     consoleDiv.scrollTop = consoleDiv.scrollHeight;
     return;
   }
-  browser.runtime.sendMessage({
-    action: 'fetchCommentById',
-    commentId: commentId
-  }).catch(err => {
-    console.error('Failed to send fetch comment by ID message:', err.message);
-  });
+
+  if (commentsToRandomize.length === 0) {
+    const p = document.createElement('p');
+    p.textContent = `${new Date().toLocaleTimeString()}: No eligible comments to randomize`;
+    consoleDiv.appendChild(p);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+    return;
+  }
+
+  const confirmRandomize = window.confirm(`Are you sure you want to randomize all ${commentsToRandomize.length} loaded comments?`);
+  if (!confirmRandomize) {
+    const p = document.createElement('p');
+    p.textContent = `${new Date().toLocaleTimeString()}: Mass randomization cancelled`;
+    consoleDiv.appendChild(p);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+    return;
+  }
+
+  // Export backup
+  const backupSuccess = exportComments(commentsToRandomize, `reddit_comments_backup`);
+  if (!backupSuccess) return;
+
+  // Wait for download to "complete" (approximation)
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  const confirmBackup = window.confirm(`Do you confirm that you have a valid backup and wish to proceed?`);
+  if (!confirmBackup) {
+    const p = document.createElement('p');
+    p.textContent = `${new Date().toLocaleTimeString()}: Mass randomization cancelled - backup not confirmed`;
+    consoleDiv.appendChild(p);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+    return;
+  }
+
+  isProcessing = true;
+  abortController = new AbortController();
+  const stopButton = document.getElementById('stopButton');
+  const randomizeAllButton = document.getElementById('randomizeAllButton');
+  stopButton.disabled = false;
+  randomizeAllButton.disabled = true;
+
+  const pStart = document.createElement('p');
+  pStart.textContent = `${new Date().toLocaleTimeString()}: Starting mass randomization of ${commentsToRandomize.length} comments`;
+  consoleDiv.appendChild(pStart);
+  consoleDiv.scrollTop = consoleDiv.scrollHeight;
+
+  try {
+    // Check token validity once before starting
+    const tokenResponse = await browser.runtime.sendMessage({ action: 'checkToken' });
+    console.log("Token response:", JSON.stringify(tokenResponse));
+    if (!tokenResponse || !tokenResponse.valid || !tokenResponse.accessToken) {
+      throw new Error('Invalid or expired authentication token');
+    }
+    const accessToken = tokenResponse.accessToken;
+
+    for (let i = 0; i < commentsToRandomize.length; i++) {
+      if (abortController.signal.aborted) {
+        throw new Error('Mass randomization stopped by user');
+      }
+      const comment = commentsToRandomize[i];
+      const commentDiv = document.querySelector(`.comment[data-comment-id="${comment.id}"]`);
+      const commentBody = commentDiv ? commentDiv.querySelector('.comment-body') : null;
+      const originalComment = comment.body;
+	  
+      try {
+		  
+        const randomizedText = await randomizeComment(originalComment);
+        // Send to Reddit first
+        const editResponse = await browser.runtime.sendMessage({
+          action: 'editComment',
+          commentId: comment.id,
+          newText: randomizedText,
+          accessToken: accessToken
+        });
+        console.log("editComment response for", comment.id, ":", JSON.stringify(editResponse));
+        if (!editResponse.success) {
+          throw new Error(editResponse.error || `Failed to update comment ${comment.id} on Reddit`);
+        }
+        // Update UI and storage only on success
+        if (commentBody) {
+          commentBody.textContent = randomizedText;
+        }
+        const allComment = allComments.find(c => c.id === comment.id);
+        if (allComment) {
+          allComment.body = randomizedText;
+        }
+        const filteredComment = filteredComments.find(c => c.id === comment.id);
+        if (filteredComment) {
+          filteredComment.body = randomizedText;
+        }
+        const p = document.createElement('p');
+        p.textContent = `${new Date().toLocaleTimeString()}: Randomized and updated comment ID: ${comment.id} (${i + 1}/${commentsToRandomize.length})`;
+        consoleDiv.appendChild(p);
+        consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        // Rate limit delay (2000ms for safety)
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } catch (error) {
+        const p = document.createElement('p');
+        p.textContent = `${new Date().toLocaleTimeString()}: Error randomizing comment ID: ${comment.id} - ${error.message}`;
+        consoleDiv.appendChild(p);
+        consoleDiv.scrollTop = consoleDiv.scrollHeight;
+      }
+    }
+    const pDone = document.createElement('p');
+    pDone.textContent = `${new Date().toLocaleTimeString()}: Mass randomization completed`;
+    consoleDiv.appendChild(pDone);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+  } catch (error) {
+    const pError = document.createElement('p');
+    pError.textContent = `${new Date().toLocaleTimeString()}: ${error.message}`;
+    consoleDiv.appendChild(pError);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+  } finally {
+    isProcessing = false;
+    abortController = null;
+    stopButton.disabled = true;
+    randomizeAllButton.disabled = !document.getElementById('dangerousActionsConfirm').checked;
+  }
 });

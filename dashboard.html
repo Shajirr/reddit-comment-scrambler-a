@@ -60,6 +60,44 @@
       background-color: #e9ecef;
       border-radius: 3px;
     }
+    .api-counter-row {
+      display: flex;
+      align-items: center;
+      margin: 5px 0;
+      padding: 8px;
+      background-color: #e9ecef;
+      border-radius: 3px;
+    }
+    .api-counter-row button {
+      margin-left: 10px;
+      padding: 5px 10px;
+      font-size: 12px;
+    }
+    .dangerous-section {
+      margin-bottom: 10px;
+      padding: 10px;
+      background-color: #fff5f5;
+      border: 1px solid red;
+      border-radius: 5px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    }
+    .dangerous-section label {
+      color: red;
+      margin-right: 10px;
+    }
+    .dangerous-section button {
+      padding: 10px 20px;
+      margin: 5px;
+      cursor: pointer;
+      background-color: #ff9500;
+      color: white;
+      border: none;
+      border-radius: 3px;
+    }
+    .dangerous-section button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
     #console {
       max-height: 200px;
       overflow-y: auto;
@@ -87,14 +125,23 @@
     .comment p {
       margin: 4px 0;
     }
-    .comment button {
+    .randomizeButton {
       padding: 5px 10px;
       margin: 5px 0;
       cursor: pointer;
-      background-color: #28a745;
+      background-color: #ff9500;
       color: white;
       border: none;
       border-radius: 3px;
+    }
+    .saved-label {
+      display: inline-block;
+      padding: 5px 10px;
+      margin: 5px 0;
+      background-color: #28a745;
+      color: white;
+      border-radius: 3px;
+      font-weight: bold;
     }
     .error {
       color: red;
@@ -108,6 +155,7 @@
     <button id="authButton">Authenticate</button>
     <button id="deleteTokenButton" disabled>Delete auth token</button>
     <button id="exportButton" disabled>Export loaded comments</button>
+    <button id="clearCommentsButton">Clear loaded comments</button>
     <div>
       <button id="fetchButton">Load</button>
       <input type="number" id="commentCount" value="100" min="1" max="10000">
@@ -130,6 +178,25 @@
     </div>
     <div id="status">Checking authentication status...</div>
     <div id="username">Username: Not authenticated</div>
+	<div class="api-counter-row">
+		<div style="display: flex; width: 100%; justify-content: space-between; align-items: center;">
+			<div style="flex: 1;">
+			  <span id="apiRequestCounter">API Requests Made: 0</span>
+			  <button id="resetApiCounterButton" style="margin-left: 10px; padding: 5px 10px; font-size: 12px;">Reset Counter</button>
+			</div>
+			<div style="flex: 1; text-align: right;">
+				<span id="rateLimitStatus">Rate Limit: 2000ms (default)</span>
+			</div>
+		</div>
+    </div>
+  </div>
+  <div class="dangerous-section">
+    <input type="checkbox" id="dangerousActionsConfirm">
+    <label for="dangerousActionsConfirm">I understand that the following actions can make irreversible changes to my account, unless I have a backup</label>
+    <div>
+      <button id="randomizeAllButton" disabled>Randomize all loaded comments</button>
+      <button id="stopButton" disabled>Stop</button>
+    </div>
   </div>
   <div id="console"></div>
   <div id="comments"></div>

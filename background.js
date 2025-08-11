@@ -3,11 +3,202 @@ const REDIRECT_URI = "https://shajirr.github.io/reddit-comment-scrambler-a/redir
 const SCOPES = "identity read history edit";
 
 console.log("Background script loaded");
-console.log("Extension ID:", browser.runtime.id);
 
 let dashboardTabId = null;
 let isDashboardTabReady = false;
 let pendingStatusMessages = [];
+
+// rate limiting system variables
+
+let currentDelay = 2000; // Default 2 seconds
+let raisedDelayTimeout = null; // Timer for returning to default
+let consecutiveRateLimitErrors = 0; // Track consecutive errors at 5000ms
+let lastRequestTime = 0;
+
+// Rate limiting configuration
+const DEFAULT_DELAY = 2000;
+const RAISED_DELAY_1 = 3000;
+const RAISED_DELAY_2 = 5000;
+const RAISED_DELAY_DURATION = 60000; // 1 minute
+const PAUSE_DURATION = 60000; // 1 minute pause
+const MAX_CONSECUTIVE_ERRORS = 3;
+
+// Reset delay to default and clear timer
+function resetToDefaultDelay() {
+  currentDelay = DEFAULT_DELAY;
+  if (raisedDelayTimeout) {
+    clearTimeout(raisedDelayTimeout);
+    raisedDelayTimeout = null;
+  }
+  consecutiveRateLimitErrors = 0;
+  console.log("Rate limit delay reset to default:", DEFAULT_DELAY + "ms");
+  sendRateLimitStatusUpdate();
+}
+
+// Raise delay with timer to reset back to default
+function raiseDelayTemporarily(newDelay) {
+  currentDelay = newDelay;
+  
+  // Clear existing timer if any
+  if (raisedDelayTimeout) {
+    clearTimeout(raisedDelayTimeout);
+  }
+  
+  // Set new timer to reset to default after 1 minute
+  raisedDelayTimeout = setTimeout(() => {
+    resetToDefaultDelay();
+  }, RAISED_DELAY_DURATION);
+  
+  console.log(`Rate limit delay raised to ${newDelay}ms for 1 minute`);
+  sendRateLimitStatusUpdate();
+}
+
+// Wait for rate limit based on current delay
+async function waitForRateLimit() {
+  const now = Date.now();
+  const timeSinceLastRequest = now - lastRequestTime;
+  
+  if (timeSinceLastRequest < currentDelay) {
+    const waitTime = currentDelay - timeSinceLastRequest;
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+  }
+  
+  lastRequestTime = Date.now();
+}
+
+// Check if error is a rate limit error
+function isRateLimitError(error) {
+  const errorText = error.message.toLowerCase();
+  return errorText.includes("doing it too much") || 
+         errorText.includes("rate limit") ||
+         errorText.includes("wait");
+}
+
+// Handle rate limit error with escalating timeouts
+async function handleRateLimitError(error) {
+  if (!isRateLimitError(error)) {
+    // Reset consecutive errors if this isn't a rate limit error
+    consecutiveRateLimitErrors = 0;
+    return false;
+  }
+  
+  await sendStatusMessage(`Rate limit detected: ${error.message}`);
+  
+  if (currentDelay === DEFAULT_DELAY) {
+    // First rate limit error - raise to 3000ms
+    raiseDelayTemporarily(RAISED_DELAY_1);
+    await sendStatusMessage(`Increased delay to ${RAISED_DELAY_1}ms for 1 minute`);
+    consecutiveRateLimitErrors = 0;
+  } else if (currentDelay === RAISED_DELAY_1) {
+    // Second rate limit error - raise to 5000ms
+    raiseDelayTemporarily(RAISED_DELAY_2);
+    await sendStatusMessage(`Increased delay to ${RAISED_DELAY_2}ms for 1 minute`);
+    consecutiveRateLimitErrors = 0;
+  } else if (currentDelay === RAISED_DELAY_2) {
+    // At maximum delay - count consecutive errors
+    consecutiveRateLimitErrors++;
+    await sendStatusMessage(`Rate limit error ${consecutiveRateLimitErrors}/${MAX_CONSECUTIVE_ERRORS} at maximum delay`);
+    
+    if (consecutiveRateLimitErrors >= MAX_CONSECUTIVE_ERRORS) {
+      // Pause operation for 1 minute
+      await sendStatusMessage(`Too many rate limit errors - pausing for 1 minute`);
+      await new Promise(resolve => setTimeout(resolve, PAUSE_DURATION));
+      
+      // Reset everything after pause
+      resetToDefaultDelay();
+      await sendStatusMessage(`Resumed after pause - delay reset to ${DEFAULT_DELAY}ms`);
+      return true; // Indicate that we paused
+    }
+  }
+  
+  return true; // Indicate this was a rate limit error
+}
+
+// Send rate limit status updates
+async function sendRateLimitStatusUpdate() {
+  if (isDashboardTabReady && dashboardTabId) {
+    try {
+      await browser.tabs.sendMessage(dashboardTabId, {
+        action: "updateRateLimitStatus",
+        delay: currentDelay,
+        temporary: currentDelay !== DEFAULT_DELAY
+      });
+    } catch (err) {
+      console.error("Failed to send rate limit status update:", err.message);
+    }
+  }
+}
+
+
+
+// Initialize API request counter
+async function incrementApiRequestCounter() {
+  const { apiRequestCount = 0 } = await browser.storage.local.get("apiRequestCount");
+  const newCount = apiRequestCount + 1;
+  await browser.storage.local.set({ apiRequestCount: newCount });
+  await updateApiRequestCounterDisplay();
+  return newCount;
+}
+// Update API counter display
+async function updateApiRequestCounterDisplay() {
+  const { apiRequestCount = 0 } = await browser.storage.local.get("apiRequestCount");
+  if (isDashboardTabReady && dashboardTabId) {
+    try {
+      await browser.tabs.sendMessage(dashboardTabId, {
+        action: "updateApiRequestCounter",
+        count: apiRequestCount
+      });
+    } catch (err) {
+      console.error("Failed to send API request counter update:", err.message);
+    }
+  }
+}
+
+// Reset API request counter
+async function resetApiRequestCounter() {
+  await browser.storage.local.set({ apiRequestCount: 0 });
+  await updateApiRequestCounterDisplay();
+}
+
+// Decode HTML entities (simple version for common entities)
+function decodeHtmlEntities(text) {
+  const entities = {
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&apos;': "'",
+    '&al;': '&',
+    '&not;': '¬'
+  };
+  return text.replace(/&amp;|&lt;|&gt;|&quot;|&apos;|&al;|&not;/g, match => entities[match] || match);
+}
+
+// Calculate Levenshtein distance for text similarity
+function levenshteinDistance(a, b) {
+  const matrix = Array(b.length + 1).fill().map(() => Array(a.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i++) matrix[0][i] = i;
+  for (let j = 0; j <= b.length; j++) matrix[j][0] = j;
+  for (let j = 1; j <= b.length; j++) {
+    for (let i = 1; i <= a.length; i++) {
+      const indicator = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[j][i] = Math.min(
+        matrix[j][i - 1] + 1, // deletion
+        matrix[j - 1][i] + 1, // insertion
+        matrix[j - 1][i - 1] + indicator // substitution
+      );
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+// Calculate similarity percentage between two strings
+function calculateSimilarity(text1, text2) {
+  const maxLength = Math.max(text1.length, text2.length);
+  if (maxLength === 0) return 100; // Both empty
+  const distance = levenshteinDistance(text1, text2);
+  return ((maxLength - distance) / maxLength) * 100;
+}
 
 // Send or queue status message based on tab readiness
 async function sendStatusMessage(message) {
@@ -45,6 +236,7 @@ async function flushPendingStatusMessages() {
 // Start the OAuth flow
 async function startAuthFlow() {
   await sendStatusMessage("Starting authentication...");
+  await resetApiRequestCounter(); // Reset counter on new authentication
   const state = Math.random().toString(36).substring(2);
   const authUrl = `https://www.reddit.com/api/v1/authorize?client_id=${CLIENT_ID}&response_type=code&state=${state}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${SCOPES}`;
   console.log("Generated authUrl:", authUrl);
@@ -81,6 +273,7 @@ async function startAuthFlow() {
 async function exchangeCodeForToken(code, state) {
   try {
     await sendStatusMessage("Exchanging code for token...");
+    await incrementApiRequestCounter(); // Count token exchange request
     const tokenUrl = "https://www.reddit.com/api/v1/access_token";
     const body = `grant_type=authorization_code&code=${code}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
     const response = await fetch(tokenUrl, {
@@ -115,13 +308,54 @@ async function exchangeCodeForToken(code, state) {
   }
 }
 
+// Refresh an access token using a refresh token
+async function refreshToken(refreshToken) {
+  try {
+    await sendStatusMessage("Refreshing token...");
+    await incrementApiRequestCounter(); // Count token refresh request
+    const response = await fetch("https://www.reddit.com/api/v1/access_token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Authorization": "Basic " + btoa(`${CLIENT_ID}:`)
+      },
+      body: `grant_type=refresh_token&refresh_token=${refreshToken}`
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Token refresh HTTP error:", response.status, errorText);
+      throw new Error(`HTTP error: ${response.status} ${response.statusText}`);
+    }
+    const data = await response.json();
+    if (data.error) {
+      console.error("Token refresh failed:", data.error);
+      throw new Error(`Token refresh failed: ${data.error}`);
+    }
+    console.log("Refreshed token, expires in:", data.expires_in, "seconds");
+    await browser.storage.local.set({
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token || refreshToken,
+      tokenExpiration: Date.now() + data.expires_in * 1000
+    });
+    await sendStatusMessage("Token refreshed");
+    return data.access_token;
+  } catch (error) {
+    console.error("Token refresh error:", error.message);
+    await sendStatusMessage(`Token refresh failed: ${error.message}`);
+    return null;
+  }
+}
+
+// Fetch username using access token
 async function getUsername(accessToken) {
   console.log("Fetching username with token:", accessToken);
   await sendStatusMessage("Fetching username...");
+  await incrementApiRequestCounter(); // Count username fetch request
   try {
     const response = await fetch("https://oauth.reddit.com/api/v1/me", {
       headers: {
-        "Authorization": `Bearer ${accessToken}`
+        "Authorization": `Bearer ${accessToken}`,
+        "User-Agent": "RedditCommentFetcher/1.0"
       }
     });
     if (!response.ok) {
@@ -135,6 +369,7 @@ async function getUsername(accessToken) {
       throw new Error(`API error: ${data.error}`);
     }
     console.log("Username:", data.name);
+    await browser.storage.local.set({ username: data.name }); // Cache username
     await sendStatusMessage(`Username fetched: ${data.name}`);
     return data.name;
   } catch (error) {
@@ -143,6 +378,7 @@ async function getUsername(accessToken) {
   }
 }
 
+// Get a valid access token, refreshing if necessary
 async function getValidToken() {
   console.log("Checking for valid token");
   await sendStatusMessage("Checking for valid token...");
@@ -170,95 +406,155 @@ async function getValidToken() {
   return null; // No valid token, require manual authentication
 }
 
-async function refreshToken(refreshToken) {
-  try {
-    await sendStatusMessage("Refreshing token...");
-    const response = await fetch("https://www.reddit.com/api/v1/access_token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Authorization": "Basic " + btoa(`${CLIENT_ID}:`)
-      },
-      body: `grant_type=refresh_token&refresh_token=${refreshToken}`
-    });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Refresh token HTTP error:", response.status, errorText);
-      throw new Error(`HTTP error: ${response.status} ${response.statusText}`);
-    }
-    const data = await response.json();
-    if (data.error) {
-      console.error("Refresh token failed:", data.error);
-      throw new Error(`Refresh token failed: ${data.error}`);
-    }
-    console.log("Token refreshed, expires in:", data.expires_in, "seconds");
-    await browser.storage.local.set({
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token,
-      tokenExpiration: Date.now() + data.expires_in * 1000
-    });
-    await sendStatusMessage("Token refreshed");
-    return data.access_token;
-  } catch (error) {
-    console.error("Refresh token error:", error.message);
-    throw error;
-  }
-}
-
+// Delete authentication token
 async function deleteAuthToken() {
-  await browser.storage.local.remove(["accessToken", "refreshToken", "tokenExpiration"]);
+  await browser.storage.local.remove(["accessToken", "refreshToken", "tokenExpiration", "username"]);
+  console.log("Auth token and username deleted");
+  await sendStatusMessage("Auth token and username deleted");
+  await resetApiRequestCounter(); // Reset counter on token deletion
   await sendStatusMessage("Authentication token deleted");
   if (isDashboardTabReady && dashboardTabId) {
-    await browser.tabs.sendMessage(dashboardTabId, {
-      action: "updateAuthStatus",
-      status: "No token present",
-      username: ""
-    });
+    try {
+      await browser.tabs.sendMessage(dashboardTabId, {
+        action: "updateAuthStatus",
+        status: "No token present",
+        username: ""
+      });
+    } catch (err) {
+      console.error("Failed to send auth status update:", err.message);
+    }
   }
 }
 
-async function checkCommentExists(accessToken, commentId) {
-  console.log(`Checking if comment exists with ID: ${commentId}`);
-  await sendStatusMessage(`Checking comment with ID: ${commentId}...`);
+// Edit a comment
+async function editComment(accessToken, commentId, newText) {
+  console.log("Editing comment with ID:", commentId);
+  await sendStatusMessage(`Editing comment with ID: ${commentId}...`);
+  await incrementApiRequestCounter();
+  
+  try {
+    // Wait for rate limit before making request
+    await waitForRateLimit();
+    
+    console.log("Using access token:", accessToken.substring(0, 20) + "...");
+    const response = await fetch(`https://oauth.reddit.com/api/editusertext`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "User-Agent": "RedditMassCommentEditor/1.0",
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({
+        api_type: "json",
+        thing_id: `t1_${commentId}`,
+        text: newText
+      }).toString()
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Edit comment HTTP error:", response.status, errorText);
+      const error = new Error(`HTTP error: ${response.status} ${errorText}`);
+      
+      await handleRateLimitError(error);
+      throw error;
+    }
+    
+    const data = await response.json();
+    if (data.json && data.json.errors && data.json.errors.length > 0) {
+      console.error("Edit comment API error:", data.json.errors);
+      const error = new Error(`API error: ${data.json.errors[0][1]}`);
+      
+      await handleRateLimitError(error);
+      throw error;
+    }
+    
+    // Success - reset consecutive error counter (but keep current delay and timer)
+    consecutiveRateLimitErrors = 0;
+    
+    // Rest of existing validation logic...
+    if (!data.json || !data.json.data || !data.json.data.things || data.json.data.things.length === 0) {
+      console.error("Invalid edit response structure:", data);
+      throw new Error("Invalid response structure from Reddit API");
+    }
+    
+    const updatedComment = data.json.data.things[0].data.body;
+    const normalizedNewText = decodeHtmlEntities(newText);
+    const normalizedUpdatedComment = decodeHtmlEntities(updatedComment);
+    const similarity = calculateSimilarity(normalizedNewText, normalizedUpdatedComment);
+    
+    console.log(`Similarity between expected and received text: ${similarity}%`);
+    if (similarity > 80) {
+      console.log("Successfully edited comment with ID:", commentId);
+      await sendStatusMessage(`Successfully edited comment with ID: ${commentId}`);
+      return { success: true };
+    } else {
+      console.error("Comment edit not applied: expected", normalizedNewText.substring(0, 20) + "...", "got", normalizedUpdatedComment.substring(0, 20) + "...");
+      await sendStatusMessage(`Failed to edit comment ${commentId}: Comment ${commentId} edit not applied: expected "${normalizedNewText.substring(0, 20)}...", got "${normalizedUpdatedComment.substring(0, 20)}..."`);
+      return { success: false, error: `Comment ${commentId} edit not applied: expected "${normalizedNewText.substring(0, 20)}...", got "${normalizedUpdatedComment.substring(0, 20)}..."` };
+    }
+  } catch (error) {
+    console.error("Edit comment error:", error.message);
+    await sendStatusMessage(`Failed to edit comment ${commentId}: ${error.message}`);
+    return { success: false, error: `Failed to edit comment ${commentId}: ${error.message}` };
+  }
+}
+
+// Check if a comment exists
+async function checkCommentExists(commentId) {
+  console.log("Checking if comment exists with ID:", commentId);
+  await sendStatusMessage(`Checking comment existence with ID: ${commentId}...`);
+  const { accessToken } = await browser.storage.local.get("accessToken");
+  if (!accessToken) {
+    throw new Error("No access token available for comment validation");
+  }
+  await incrementApiRequestCounter(); // Count comment existence check
   try {
     const response = await fetch(`https://oauth.reddit.com/api/info?id=t1_${commentId}`, {
-      headers: { "Authorization": `Bearer ${accessToken}` }
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "User-Agent": "RedditMassCommentEditor/1.0"
+      }
+    });
+    if (!response.ok) {
+	  const errorText = await response.text();
+      console.error("Check comment exists HTTP error:", response.status, errorText);
+      throw new Error(`HTTP error: ${response.status} ${errorText}`);
+    }
+    const data = await response.json();
+    if (!data.data || !data.data.children || data.data.children.length === 0) {
+	  console.error("Invalid check comment response:", data);
+      throw new Error(`Comment ID ${commentId} not found or inaccessible`);																
+    }
+    console.log("Comment exists with ID:", commentId);
+    await sendStatusMessage(`Comment exists with ID: ${commentId}`);
+    return true;
+  } catch (error) {
+      console.error("Check comment exists error:", error.message);
+      await sendStatusMessage(`Failed to check comment ${commentId}: ${error.message}`);
+      return false;
+  }
+}
+// Fetch a single comment by ID
+async function fetchCommentById(accessToken, commentId) {
+  console.log("Fetching comment with ID:", commentId);
+  await incrementApiRequestCounter();
+  try {
+    const response = await fetch(`https://oauth.reddit.com/api/info?id=t1_${commentId}`, {
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "User-Agent": "RedditCommentFetcher/1.0"
+      }
     });
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("Comment check HTTP error:", response.status, errorText);
-      throw new Error(`HTTP error: ${response.status} ${response.statusText}`);
+      console.error("Fetch comment by ID HTTP error:", response.status, errorText);
+      throw new Error(`HTTP error: ${response.status} ${errorText}`);
     }
     const data = await response.json();
     if (data.error || !data.data || !data.data.children || data.data.children.length === 0) {
-      throw new Error("Comment not found or inaccessible");
-    }
-    console.log(`Comment with ID: ${commentId} exists`);
-    await sendStatusMessage(`Comment with ID: ${commentId} exists`);
-    return true;
-  } catch (error) {
-    console.error("Comment check error:", error.message);
-    await sendStatusMessage(`Error checking comment: ${error.message}`);
-    throw error;
-  }
-}
-
-async function fetchCommentById(accessToken, commentId) {
-  console.log(`Fetching comment with ID: ${commentId}`);
-  await sendStatusMessage(`Fetching comment with ID: ${commentId}...`);
-  try {
-    const response = await fetch(`https://oauth.reddit.com/api/info?id=t1_${commentId}`, {
-      headers: { "Authorization": `Bearer ${accessToken}` }
-    });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Fetch comment HTTP error:", response.status, errorText);
-      throw new Error(`HTTP error: ${response.status} ${response.statusText}`);
-    }
-    const data = await response.json();
-    if (data.error) {
-      console.error("API error:", data.error);
-      throw new Error(`API error: ${data.error}`);
+      console.error("Invalid fetch comment response:", data);
+      throw new Error(`API error: ${data.error || "No comment data returned"}`);
     }
     const commentData = data.data?.children[0]?.data;
     if (!commentData) {
@@ -270,58 +566,72 @@ async function fetchCommentById(accessToken, commentId) {
       subreddit: commentData.subreddit,
       created: new Date(commentData.created_utc * 1000).toLocaleString(),
       created_utc: commentData.created_utc,
-      index: 1 // Single comment, assign index 1
+      index: 1, // Single comment, assign index 1
+      isSaved: commentData.saved
     };
-    console.log(`Fetched comment with ID: ${commentId}`);
+    console.log(`Fetched comment with ID: ${commentId}, isSaved: ${comment.isSaved}`);
     await sendStatusMessage(`Fetched comment with ID: ${commentId}`);
     return comment;
   } catch (error) {
     console.error("Fetch comment error:", error.message);
-    await sendStatusMessage(`Error fetching comment: ${error.message}`);
+    await sendStatusMessage(`Error: ${error.message}`);
     throw error;
   }
 }
 
-async function editComment(accessToken, commentId, newText) {
-  console.log(`Editing comment with ID: ${commentId}`);
-  await sendStatusMessage(`Editing comment with ID: ${commentId}...`);
+// Delete a comment
+async function deleteComment(accessToken, commentId) {
+  console.log("Deleting comment with ID:", commentId);
+  await sendStatusMessage(`Deleting comment with ID: ${commentId}...`);
+  await incrementApiRequestCounter();
   try {
-    const response = await fetch("https://oauth.reddit.com/api/editusertext", {
+    console.log("Using access token:", accessToken.substring(0, 20) + "...");
+    const response = await fetch(`https://oauth.reddit.com/api/del`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${accessToken}`,
+        "User-Agent": "RedditCommentFetcher/1.0",
         "Content-Type": "application/x-www-form-urlencoded"
       },
-      body: `thing_id=t1_${commentId}&text=${encodeURIComponent(newText)}`
+      body: new URLSearchParams({
+        api_type: "json",
+        id: `t1_${commentId}`
+      }).toString()
     });
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("Edit comment HTTP error:", response.status, errorText);
-      throw new Error(`HTTP error: ${response.status} ${response.statusText}`);
+      console.error("Delete comment HTTP error:", response.status, errorText);
+      throw new Error(`HTTP error: ${response.status} ${errorText}`);
     }
     const data = await response.json();
-    if (data.error) {
-      console.error("API error:", data.error);
-      throw new Error(`API error: ${data.error}`);
+    if (data.json && data.json.errors && data.json.errors.length > 0) {
+      console.error("Delete comment API error:", data.json.errors);
+      throw new Error(`API error: ${data.json.errors[0][1]}`);
     }
-    console.log(`Successfully edited comment with ID: ${commentId}`);
-    await sendStatusMessage(`Successfully edited comment with ID: ${commentId}`);
-    return data;
+    console.log("Successfully deleted comment with ID:", commentId);
+    await sendStatusMessage(`Successfully deleted comment with ID: ${commentId}`);
+    return { success: true };
   } catch (error) {
-    console.error("Edit comment error:", error.message);
-    await sendStatusMessage(`Error editing comment: ${error.message}`);
-    throw error;
+    console.error("Delete comment error:", error.message);
+    await sendStatusMessage(`Failed to delete comment ${commentId}: ${error.message}`);
+    return { success: false, error: `Failed to delete comment ${commentId}: ${error.message}` };
   }
 }
 
+// Fetch user comments
 async function fetchComments(accessToken, maxComments, afterCommentId) {
+  const { username } = await browser.storage.local.get("username");
+  if (!username) {
+    console.error("No username found in storage");
+    await sendStatusMessage("No username found. Please re-authenticate.");
+    throw new Error("No username found. Please re-authenticate.");
+  }
   console.log(`Fetching up to ${maxComments} comments with token:`, accessToken, `afterCommentId: ${afterCommentId || 'none'}`);
   await sendStatusMessage(`Starting comment fetch${afterCommentId ? ` after ID: ${afterCommentId}` : ''}...`);
   try {
     if (afterCommentId) {
-      await checkCommentExists(accessToken, afterCommentId);
+      await checkCommentExists(afterCommentId);
     }
-    const username = await getUsername(accessToken);
     let allComments = [];
     let after = afterCommentId ? `t1_${afterCommentId}` : null;
     const maxBatchSize = 100; // Reddit API max per request
@@ -333,9 +643,13 @@ async function fetchComments(accessToken, maxComments, afterCommentId) {
       const remainingComments = maxComments - allComments.length;
       const batchSize = Math.min(maxBatchSize, remainingComments);
       await sendStatusMessage(`Fetching batch ${batchNumber} of ${batchSize} comments${afterCommentId ? ` after ID: ${afterCommentId}` : ''}...`);
+      await incrementApiRequestCounter(); // Count each batch fetch
       const endpoint = `https://oauth.reddit.com/user/${username}/comments?limit=${batchSize}${after ? `&after=${after}` : ''}`;
       const response = await fetch(endpoint, {
-        headers: { "Authorization": `Bearer ${accessToken}` }
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "User-Agent": "RedditCommentFetcher/1.0"
+        }
       });
       if (!response.ok) {
         const errorText = await response.text();
@@ -343,9 +657,9 @@ async function fetchComments(accessToken, maxComments, afterCommentId) {
         throw new Error(`HTTP error: ${response.status} ${errorText}`);
       }
       const data = await response.json();
-      if (data.error) {
-        console.error("API error:", data.error);
-        throw new Error(`API error: ${data.error}`);
+      if (data.error || !data.data || !data.data.children) {
+        console.error("Invalid fetch comments response:", data);
+        throw new Error(`API error: ${data.error || "No comment data returned"}`);
       }
       const comments = data.data.children
         .map((comment, index) => ({
@@ -354,7 +668,8 @@ async function fetchComments(accessToken, maxComments, afterCommentId) {
           subreddit: comment.data.subreddit,
           created: new Date(comment.data.created_utc * 1000).toLocaleString(),
           created_utc: comment.data.created_utc,
-          index: allComments.length + index + 1 // 1-based index
+          index: allComments.length + index + 1, // 1-based index
+          isSaved: comment.data.saved
         }));
       allComments = allComments.concat(comments);
       console.log(`Fetched ${comments.length} comments, total: ${allComments.length}`);
@@ -400,13 +715,15 @@ browser.browserAction.onClicked.addListener(async () => {
   }
 });
 
-browser.runtime.onMessage.addListener(async (message) => {
+browser.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+  console.log("Received message:", message, "from sender:", sender);
   if (message.action === "dashboardTabReady") {
-    console.log("Dashboard tab ready, ID:", message.tabId);
     dashboardTabId = message.tabId;
     isDashboardTabReady = true;
+    console.log("Dashboard tab ready, ID:", dashboardTabId);
     flushPendingStatusMessages();
-    // Check for existing token and update status
+	// Send initial rate limit status
+	await sendRateLimitStatusUpdate();
     try {
       const accessToken = await getValidToken();
       if (accessToken) {
@@ -423,6 +740,12 @@ browser.runtime.onMessage.addListener(async (message) => {
           username: ""
         });
       }
+      // Send initial API request count
+      const { apiRequestCount = 0 } = await browser.storage.local.get("apiRequestCount");
+      await browser.tabs.sendMessage(dashboardTabId, {
+        action: "updateApiRequestCounter",
+        count: apiRequestCount
+      });
     } catch (error) {
       console.error("Error checking token on dashboard ready:", error.message);
       await browser.tabs.sendMessage(dashboardTabId, {
@@ -458,13 +781,15 @@ browser.runtime.onMessage.addListener(async (message) => {
     try {
       const accessToken = await getValidToken();
       if (!accessToken) {
+        const errorMsg = "No valid token. Please authenticate first.";
         await browser.tabs.sendMessage(dashboardTabId, {
           action: "displayError",
-          error: "No valid token. Please authenticate first."
+          error: errorMsg
         });
-        return;
+        return { success: false, error: errorMsg };
       }
-      await fetchComments(accessToken, message.maxComments, message.afterCommentId);
+      const result = await fetchComments(accessToken, message.maxComments, message.afterCommentId);
+      return { success: true, result: result };
     } catch (error) {
       console.error("Fetch comments error:", error.message);
       if (isDashboardTabReady && dashboardTabId) {
@@ -473,22 +798,25 @@ browser.runtime.onMessage.addListener(async (message) => {
           error: error.message
         });
       }
+      return { success: false, error: error.message };
     }
   } else if (message.action === "fetchCommentById") {
     try {
       const accessToken = await getValidToken();
       if (!accessToken) {
+        const errorMsg = "No valid token. Please authenticate first.";
         await browser.tabs.sendMessage(dashboardTabId, {
           action: "displayError",
-          error: "No valid token. Please authenticate first."
+          error: errorMsg
         });
-        return;
+        return { success: false, error: errorMsg };
       }
       const comment = await fetchCommentById(accessToken, message.commentId);
       await browser.tabs.sendMessage(dashboardTabId, {
         action: "addComments",
         allComments: [comment]
       });
+      return { success: true, comment: comment };
     } catch (error) {
       console.error("Fetch comment by ID error:", error.message);
       if (isDashboardTabReady && dashboardTabId) {
@@ -497,32 +825,61 @@ browser.runtime.onMessage.addListener(async (message) => {
           error: error.message
         });
       }
+      return { success: false, error: error.message };
     }
   } else if (message.action === "editComment") {
+    console.log("Processing editComment request for comment ID:", message.commentId);
+    try {
+      const accessToken = message.accessToken || await getValidToken();
+      if (!accessToken) {
+        console.error("No valid token for editComment");
+        return { success: false, error: "No valid token. Please authenticate first." };
+      }
+      const result = await editComment(accessToken, message.commentId, message.newText);
+      console.log("editComment response:", result);
+      return result;
+    } catch (error) {
+      console.error("Edit comment error:", error.message);
+      await sendStatusMessage(`Failed to edit comment ID: ${message.commentId} - ${error.message}`);
+      return { success: false, error: `Failed to edit comment ${message.commentId}: ${error.message}` };
+    }
+  } else if (message.action === "checkToken") {
+    console.log("Processing checkToken request");
     try {
       const accessToken = await getValidToken();
       if (!accessToken) {
-        await browser.tabs.sendMessage(dashboardTabId, {
-          action: "displayError",
-          error: "No valid token. Please authenticate first."
-        });
-        return;
+        console.error("No valid token found in getValidToken");
+        await sendStatusMessage("No valid token found");
+        return { valid: false, accessToken: null };
       }
-      await editComment(accessToken, message.commentId, message.newText);
-      await browser.tabs.sendMessage(dashboardTabId, {
-        action: "editCommentSuccess",
-        commentId: message.commentId,
-        newText: message.newText
-      });
-    } catch (error) {
-      console.error("Edit comment error:", error.message);
-      if (isDashboardTabReady && dashboardTabId) {
-        await browser.tabs.sendMessage(dashboardTabId, {
-          action: "displayError",
-          error: `Failed to edit comment: ${error.message}`
-        });
-      }
+      console.log("Returning valid token:", accessToken.substring(0, 20) + "...");
+      await sendStatusMessage("Valid token confirmed");
+      return { valid: true, accessToken: accessToken };
+    } catch (err) {
+      console.error("Check token error:", err.message);
+      await sendStatusMessage(`Check token failed: ${err.message}`);
+      return { valid: false, accessToken: null };
     }
+  } else if (message.action === "deleteComment") {
+    console.log("Processing deleteComment request for comment ID:", message.commentId);
+    try {
+      const accessToken = message.accessToken || await getValidToken();
+      if (!accessToken) {
+        console.error("No valid token for deleteComment");
+        return { success: false, error: "No valid token. Please authenticate first." };
+      }
+      const result = await deleteComment(accessToken, message.commentId);
+      console.log("deleteComment response:", result);
+      return result;
+    } catch (error) {
+      console.error("Delete comment error:", error.message);
+      await sendStatusMessage(`Failed to delete comment ID: ${message.commentId} - ${error.message}`);
+      return { success: false, error: `Failed to delete comment ${message.commentId}: ${error.message}` };
+    }
+  } else if (message.action === "resetApiRequestCounter") {
+    await resetApiRequestCounter();
+    await sendStatusMessage("API request counter reset");
+	return { success: true };						 
   }
 });
 

@@ -60,13 +60,20 @@
       background-color: #e9ecef;
       border-radius: 3px;
     }
+	#username {
+	  display: inline-block;
+	  width: 60%;
+	}
     .client-id-status {
-      margin: 5px 0;
-      padding: 8px;
-      background-color: #e9ecef;
-      border-radius: 3px;
-      font-size: 14px;
-    }
+	  margin: 5px 0;
+	  padding: 8px;
+	  background-color: #e9ecef;
+	  border-radius: 3px;
+	  font-size: 14px;
+	  display: inline-block;
+	  float: right;
+	  width: auto;
+	}
     .api-counter-row {
       display: flex;
       align-items: center;
@@ -284,10 +291,9 @@
       <button id="loadCommentByIdButton">Load comment by ID</button>
     </div>
     <div id="status">Checking authentication status...</div>
-    <div style="display: flex; justify-content: space-between; align-items: center; margin: 5px 0; padding: 8px 8px 8px 0; background-color: #e9ecef; border-radius: 3px; min-height: 20px;">
-      <div id="username" style="padding-left: 8px;">Username: Not authenticated</div>
-      <div id="clientIdStatus" style="text-align: right;">CLIENT_ID: Loading...</div>
-    </div>
+    <div id="username">Username: Not authenticated</div>
+	<div id="clientIdStatus" class="client-id-status">CLIENT_ID: Loading...</div>
+	<div style="clear: both;"></div>
 	<div class="api-counter-row">
     <div style="display: flex; width: 100%; align-items: center;">
       <div style="flex: 1;">

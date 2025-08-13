@@ -494,6 +494,7 @@ browser.runtime.onMessage.addListener((message) => {
       }
     }
   } else if (message.action === 'updateClientIdStatus') {
+	console.log("Received updateClientIdStatus message:", message);
     const clientIdStatusDiv = document.getElementById('clientIdStatus');
     if (clientIdStatusDiv) {
       const statusText = message.isDefault 

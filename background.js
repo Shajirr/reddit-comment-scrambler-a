@@ -68,6 +68,7 @@ async function updateRateLimitHeaderDisplay() {
 
 // Send CLIENT_ID status update to dashboard
 async function updateClientIdStatus() {
+  console.log("updateClientIdStatus called, CLIENT_ID:", CLIENT_ID, "isDefault:", CLIENT_ID === DEFAULT_CLIENT_ID);
   if (isDashboardTabReady && dashboardTabId) {
     try {
       const isDefault = CLIENT_ID === DEFAULT_CLIENT_ID;
@@ -976,7 +977,7 @@ browser.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
       isDefault: isDefault,
       preview: CLIENT_ID.substring(0, 10) + (CLIENT_ID.length > 10 ? "..." : "")
     };
-  }
+  } 
 });
 
 console.log("Message listener registered for dashboard tab");
@@ -1083,38 +1084,52 @@ async function testClientId(clientId) {
     }
     
     if (clientId.trim().length < 14) {
-      return { success: false, error: "CLIENT_ID appears to be too short (Reddit CLIENT_IDs are typically 14+ characters)" };
+      return { success: false, error: "CLIENT_ID appears to be too short" };
     }
     
-    // Check for invalid characters (Reddit CLIENT_IDs are alphanumeric with some symbols)
+    // Check for invalid characters (Reddit CLIENT_IDs are base64-like: alphanumeric, underscore, dash)
     if (!/^[A-Za-z0-9_-]+$/.test(clientId)) {
-      return { success: false, error: "CLIENT_ID contains invalid characters (only letters, numbers, underscore, and dash allowed)" };
+      return { success: false, error: "CLIENT_ID contains invalid characters (only alphanumeric, underscore, and dash allowed)" };
     }
     
+    // Ensure SCOPES and REDIRECT_URI are defined
+    if (!SCOPES || !REDIRECT_URI) {
+      return { success: false, error: "Missing required configuration: SCOPES or REDIRECT_URI not defined" };
+    }
+
     // Test by making an actual authorization request to Reddit
-    // We'll try to create an auth URL and see if Reddit accepts it
-    const state = Math.random().toString(36).substring(2);
-    const testAuthUrl = `https://www.reddit.com/api/v1/authorize?client_id=${clientId}&response_type=code&state=${state}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${SCOPES}`;
+
+    const state = Math.random().toString(36).substring(2, 15);
+    const testAuthUrl = `https://www.reddit.com/api/v1/authorize?client_id=${encodeURIComponent(clientId)}&response_type=code&state=${state}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${encodeURIComponent(SCOPES)}`;
     
     try {
-      // Make a HEAD request to see if Reddit accepts this CLIENT_ID
-      const response = await fetch(testAuthUrl, { method: 'HEAD' });
+      // Set up an AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5-second timeout
       
-      // If we get a redirect or 200, the CLIENT_ID is likely valid
-      // If we get 400/401/403, the CLIENT_ID is likely invalid
-      if (response.status === 400 || response.status === 401 || response.status === 403) {
-        return { success: false, error: "CLIENT_ID rejected by Reddit (invalid or non-existent)" };
+      // Make a HEAD request to see if Reddit accepts this CLIENT_ID
+      const response = await fetch(testAuthUrl, { 
+        method: 'HEAD',
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+	  
+      // If we get 200, the CLIENT_ID is likely valid, otherwise, consider it invalid
+      if (response.status !== 200) {
+        return { success: false, error: `CLIENT_ID rejected by Reddit (HTTP status ${response.status})` };
       }
       
-      // Any other response (including redirects) suggests the CLIENT_ID format is accepted
-      return { success: true };
+      return { success: true, message: "CLIENT_ID appears valid" };
     } catch (fetchError) {
-      // Network errors or CORS issues - assume CLIENT_ID might be valid
-      // (we can't definitively test due to browser restrictions)
-      return { success: true, warning: "Could not fully validate CLIENT_ID due to network restrictions, but format appears valid" };
+      // Handle fetch errors (network issues, CORS, timeout)
+      if (fetchError.name === 'AbortError') {
+        return { success: false, error: "CLIENT_ID validation timed out after 5 seconds" };
+      }
+      return { success: false, error: `CLIENT_ID validation failed: ${fetchError.message}` };
     }
   } catch (error) {
-    return { success: false, error: error.message };
+    return { success: false, error: `Unexpected error during CLIENT_ID validation: ${error.message}` };
   }
 }
 

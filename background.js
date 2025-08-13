@@ -1,6 +1,9 @@
-const CLIENT_ID = "HgQTMaSrLS4wYX2eZ-eR0Q";
+const DEFAULT_CLIENT_ID = "HgQTMaSrLS4wYX2eZ-eR0Q";
 const REDIRECT_URI = "https://shajirr.github.io/reddit-mass-comment-editor/redirect.html";
 const SCOPES = "identity read history edit";
+
+// will be updated from storage
+let CLIENT_ID = DEFAULT_CLIENT_ID; 
 
 console.log("Background script loaded");
 
@@ -59,6 +62,23 @@ async function updateRateLimitHeaderDisplay() {
       });
     } catch (err) {
       console.error("Failed to send rate limit headers update:", err.message);
+    }
+  }
+}
+
+// Send CLIENT_ID status update to dashboard
+async function updateClientIdStatus() {
+  if (isDashboardTabReady && dashboardTabId) {
+    try {
+      const isDefault = CLIENT_ID === DEFAULT_CLIENT_ID;
+      await browser.tabs.sendMessage(dashboardTabId, {
+        action: "updateClientIdStatus",
+        clientId: CLIENT_ID,
+        isDefault: isDefault,
+        preview: CLIENT_ID.substring(0, 10) + (CLIENT_ID.length > 10 ? "..." : "")
+      });
+    } catch (err) {
+      console.error("Failed to send CLIENT_ID status update:", err.message);
     }
   }
 }
@@ -772,6 +792,10 @@ browser.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
 	// Send initial rate limit status
 	await sendRateLimitStatusUpdate();
     await updateRateLimitHeaderDisplay();
+    
+    // Update CLIENT_ID status on dashboard ready
+    await updateClientIdStatus();
+    
     try {
       const accessToken = await getValidToken();
       if (accessToken) {
@@ -928,7 +952,171 @@ browser.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
     await resetApiRequestCounter();
     await sendStatusMessage("API request counter reset");
 	return { success: true };						 
+  } else if (message.action === "setCustomClientId") {
+    try {
+      const result = await setCustomClientId(message.clientId);
+      return result;
+    } catch (error) {
+      console.error("Set custom CLIENT_ID error:", error.message);
+      return { success: false, error: error.message };
+    }
+  } else if (message.action === "resetToDefaultClientId") {
+    try {
+      const result = await resetToDefaultClientId();
+      return result;
+    } catch (error) {
+      console.error("Reset CLIENT_ID error:", error.message);
+      return { success: false, error: error.message };
+    }
+  } else if (message.action === "getCurrentClientId") {
+    const isDefault = CLIENT_ID === DEFAULT_CLIENT_ID;
+    return { 
+      success: true, 
+      clientId: CLIENT_ID,
+      isDefault: isDefault,
+      preview: CLIENT_ID.substring(0, 10) + (CLIENT_ID.length > 10 ? "..." : "")
+    };
   }
 });
 
 console.log("Message listener registered for dashboard tab");
+
+// Load custom CLIENT_ID from storage on startup
+async function loadCustomClientId() {
+  try {
+    const { customClientId } = await browser.storage.local.get("customClientId");
+    if (customClientId) {
+      CLIENT_ID = customClientId;
+      console.log("Loaded custom CLIENT_ID:", CLIENT_ID.substring(0, 10) + "...");
+    } else {
+      CLIENT_ID = DEFAULT_CLIENT_ID;
+      console.log("Using default CLIENT_ID");
+    }
+  } catch (error) {
+    console.error("Failed to load custom CLIENT_ID:", error.message);
+    CLIENT_ID = DEFAULT_CLIENT_ID;
+  }
+}
+
+// Set custom CLIENT_ID
+async function setCustomClientId(newClientId) {
+  const oldClientId = CLIENT_ID;
+  
+  try {
+    // Test the new CLIENT_ID first
+    const testResult = await testClientId(newClientId);
+    if (!testResult.success) {
+      throw new Error(testResult.error);
+    }
+    
+    // If test succeeds, clear existing tokens since they're tied to the old CLIENT_ID
+    await browser.storage.local.remove(["accessToken", "refreshToken", "tokenExpiration", "username"]);
+    await sendStatusMessage("Cleared existing authentication tokens due to CLIENT_ID change");
+    
+    // Set the new CLIENT_ID
+    CLIENT_ID = newClientId;
+    await browser.storage.local.set({ customClientId: newClientId });
+    
+    // Update dashboard auth status to reflect cleared tokens
+    if (isDashboardTabReady && dashboardTabId) {
+      try {
+        await browser.tabs.sendMessage(dashboardTabId, {
+          action: "updateAuthStatus",
+          status: "No token present (CLIENT_ID changed)",
+          username: ""
+        });
+      } catch (err) {
+        console.error("Failed to send auth status update:", err.message);
+      }
+    }
+    
+    await sendStatusMessage(`Custom CLIENT_ID set: ${newClientId.substring(0, 10)}... ${testResult.warning || ''}`);
+    // Update dashboard CLIENT_ID status display
+    await updateClientIdStatus();
+    return { success: true, warning: testResult.warning };
+    
+  } catch (error) {
+    CLIENT_ID = oldClientId; // Revert on failure
+    await sendStatusMessage(`Failed to set custom CLIENT_ID: ${error.message}`);
+    return { success: false, error: error.message };
+  }
+}
+
+// Reset to default CLIENT_ID
+async function resetToDefaultClientId() {
+  const wasCustom = CLIENT_ID !== DEFAULT_CLIENT_ID;
+  CLIENT_ID = DEFAULT_CLIENT_ID;
+  await browser.storage.local.remove("customClientId");
+  
+  // If we were using a custom CLIENT_ID, clear tokens
+  if (wasCustom) {
+    await browser.storage.local.remove(["accessToken", "refreshToken", "tokenExpiration", "username"]);
+    await sendStatusMessage("Reset to default CLIENT_ID and cleared authentication tokens");
+    // Update dashboard CLIENT_ID status display
+    await updateClientIdStatus();
+    
+    // Update dashboard auth status
+    if (isDashboardTabReady && dashboardTabId) {
+      try {
+        await browser.tabs.sendMessage(dashboardTabId, {
+          action: "updateAuthStatus",
+          status: "No token present (CLIENT_ID reset)",
+          username: ""
+        });
+      } catch (err) {
+        console.error("Failed to send auth status update:", err.message);
+      }
+    }
+  } else {
+    await sendStatusMessage("Reset to default CLIENT_ID");
+  }
+  
+  return { success: true };
+}
+
+// Test CLIENT_ID by attempting OAuth authorization URL creation and basic validation
+async function testClientId(clientId) {
+  try {
+    // Basic validation
+    if (!clientId || clientId.trim().length === 0) {
+      return { success: false, error: "CLIENT_ID cannot be empty" };
+    }
+    
+    if (clientId.trim().length < 14) {
+      return { success: false, error: "CLIENT_ID appears to be too short (Reddit CLIENT_IDs are typically 14+ characters)" };
+    }
+    
+    // Check for invalid characters (Reddit CLIENT_IDs are alphanumeric with some symbols)
+    if (!/^[A-Za-z0-9_-]+$/.test(clientId)) {
+      return { success: false, error: "CLIENT_ID contains invalid characters (only letters, numbers, underscore, and dash allowed)" };
+    }
+    
+    // Test by making an actual authorization request to Reddit
+    // We'll try to create an auth URL and see if Reddit accepts it
+    const state = Math.random().toString(36).substring(2);
+    const testAuthUrl = `https://www.reddit.com/api/v1/authorize?client_id=${clientId}&response_type=code&state=${state}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${SCOPES}`;
+    
+    try {
+      // Make a HEAD request to see if Reddit accepts this CLIENT_ID
+      const response = await fetch(testAuthUrl, { method: 'HEAD' });
+      
+      // If we get a redirect or 200, the CLIENT_ID is likely valid
+      // If we get 400/401/403, the CLIENT_ID is likely invalid
+      if (response.status === 400 || response.status === 401 || response.status === 403) {
+        return { success: false, error: "CLIENT_ID rejected by Reddit (invalid or non-existent)" };
+      }
+      
+      // Any other response (including redirects) suggests the CLIENT_ID format is accepted
+      return { success: true };
+    } catch (fetchError) {
+      // Network errors or CORS issues - assume CLIENT_ID might be valid
+      // (we can't definitively test due to browser restrictions)
+      return { success: true, warning: "Could not fully validate CLIENT_ID due to network restrictions, but format appears valid" };
+    }
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+// Load custom CLIENT_ID on startup
+loadCustomClientId();

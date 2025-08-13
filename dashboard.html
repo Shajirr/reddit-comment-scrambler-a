@@ -60,6 +60,13 @@
       background-color: #e9ecef;
       border-radius: 3px;
     }
+    .client-id-status {
+      margin: 5px 0;
+      padding: 8px;
+      background-color: #e9ecef;
+      border-radius: 3px;
+      font-size: 14px;
+    }
     .api-counter-row {
       display: flex;
       align-items: center;
@@ -101,7 +108,7 @@
     .replace-controls {
       display: flex;
 	  flex-direction: column;
-      align-items: left;
+      align-items: flex-start;
       gap: 10px;
       margin: 10px 0;
     }
@@ -172,6 +179,78 @@
       color: red;
       font-weight: bold;
     }
+    
+    /* Popup styles */
+    .popup-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+
+    .popup-content {
+      background-color: white;
+      padding: 20px;
+      border-radius: 5px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+      max-width: 500px;
+      width: 90%;
+    }
+
+    .popup-content h3 {
+      margin-top: 0;
+      margin-bottom: 15px;
+      color: #333;
+    }
+
+    .popup-content label {
+      display: block;
+      margin-bottom: 10px;
+      font-weight: bold;
+    }
+
+    .popup-content input[type="text"] {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 15px;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      box-sizing: border-box;
+    }
+
+    .popup-buttons {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .popup-buttons button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+
+    .popup-buttons .confirm-btn {
+      background-color: #007bff;
+      color: white;
+    }
+
+    .popup-buttons .default-btn {
+      background-color: #28a745;
+      color: white;
+    }
+
+    .popup-buttons .cancel-btn {
+      background-color: #6c757d;
+      color: white;
+    }
   </style>
 </head>
 <body>
@@ -179,8 +258,11 @@
   <div class="controls">
     <button id="authButton">Authenticate</button>
     <button id="deleteTokenButton" disabled>Delete auth token</button>
-    <button id="exportButton" disabled>Export loaded comments</button>
-    <button id="clearCommentsButton">Clear loaded comments</button>
+    <button id="setClientIdButton">Set CLIENT_ID</button>
+    <div>
+      <button id="exportButton" disabled>Export loaded comments</button>
+      <button id="clearCommentsButton">Clear loaded comments</button>
+    </div>
     <div>
       <button id="fetchButton">Load</button>
       <input type="number" id="commentCount" value="100" min="1" max="10000">
@@ -202,7 +284,10 @@
       <button id="loadCommentByIdButton">Load comment by ID</button>
     </div>
     <div id="status">Checking authentication status...</div>
-    <div id="username">Username: Not authenticated</div>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin: 5px 0; padding: 8px 8px 8px 0; background-color: #e9ecef; border-radius: 3px; min-height: 20px;">
+      <div id="username" style="padding-left: 8px;">Username: Not authenticated</div>
+      <div id="clientIdStatus" style="text-align: right;">CLIENT_ID: Loading...</div>
+    </div>
 	<div class="api-counter-row">
     <div style="display: flex; width: 100%; align-items: center;">
       <div style="flex: 1;">

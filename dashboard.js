@@ -381,6 +381,32 @@ function updateApiRequestCounter() {
   const apiCounterDiv = document.getElementById('apiRequestCounter');
   apiCounterDiv.textContent = `API Requests Made: ${apiRequestCount}`;
 }
+
+// Update CLIENT_ID status display
+async function updateClientIdStatus() {
+  try {
+    const result = await browser.runtime.sendMessage({
+      action: 'getCurrentClientId'
+    });
+    
+    if (result.success) {
+      const clientIdStatusDiv = document.getElementById('clientIdStatus');
+      if (clientIdStatusDiv) {
+        const statusText = result.isDefault 
+          ? 'CLIENT_ID: Default'
+          : `CLIENT_ID: Custom (${result.preview})`;
+        clientIdStatusDiv.textContent = statusText;
+      }
+    }
+  } catch (error) {
+    console.error('Failed to update CLIENT_ID status:', error.message);
+    const statusDiv = document.getElementById('clientIdStatus');
+    if (statusDiv) {
+      statusDiv.textContent = 'CLIENT_ID: Error loading';
+    }
+  }
+}
+
 browser.runtime.getBackgroundPage().then(() => {
   browser.tabs.getCurrent().then(tab => {
     browser.runtime.sendMessage({
@@ -466,6 +492,14 @@ browser.runtime.onMessage.addListener((message) => {
       } else {
         rateLimitRemainingDiv.textContent = 'Requests remaining: --';
       }
+    }
+  } else if (message.action === 'updateClientIdStatus') {
+    const clientIdStatusDiv = document.getElementById('clientIdStatus');
+    if (clientIdStatusDiv) {
+      const statusText = message.isDefault 
+      ? 'CLIENT_ID: Default'
+      : `CLIENT_ID: Custom (${message.preview})`;
+      clientIdStatusDiv.textContent = statusText;
     }
   }
 });
@@ -1006,4 +1040,133 @@ document.getElementById('editAllButton').addEventListener('click', async () => {
     randomizeAllButton.disabled = !isConfirmed;
     editAllButton.disabled = !isConfirmed;
   }
+});
+
+// Show CLIENT_ID popup
+function showClientIdPopup() {
+  const overlay = document.createElement('div');
+  overlay.className = 'popup-overlay';
+  
+  const popup = document.createElement('div');
+  popup.className = 'popup-content';
+  
+  const title = document.createElement('h3');
+  title.textContent = 'Set Custom CLIENT_ID';
+  
+  const description = document.createElement('p');
+  description.textContent = 'Enter your custom Reddit app CLIENT_ID. Leave empty to use default.';
+  description.style.marginBottom = '15px';
+  description.style.fontSize = '14px';
+  description.style.color = '#666';
+  
+  const label = document.createElement('label');
+  label.textContent = 'CLIENT_ID:';
+  
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'Enter CLIENT_ID (e.g., ABC123def456...)';
+  input.style.fontFamily = 'monospace';
+  
+  const buttonContainer = document.createElement('div');
+  buttonContainer.className = 'popup-buttons';
+  
+  const confirmBtn = document.createElement('button');
+  confirmBtn.className = 'confirm-btn';
+  confirmBtn.textContent = 'Confirm';
+  
+  const defaultBtn = document.createElement('button');
+  defaultBtn.className = 'default-btn';
+  defaultBtn.textContent = 'Use Default';
+  
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'cancel-btn';
+  cancelBtn.textContent = 'Cancel';
+  
+  // Event listeners
+  confirmBtn.addEventListener('click', async () => {
+    const newClientId = input.value.trim();
+    if (!newClientId) {
+      alert('Please enter a CLIENT_ID');
+      return;
+    }
+    
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Testing...';
+    
+    try {
+      const result = await browser.runtime.sendMessage({
+        action: 'setCustomClientId',
+        clientId: newClientId
+      });
+      
+      if (result.success) {
+        updateClientIdStatus();
+        document.body.removeChild(overlay);
+        
+        // Show warning if present
+        if (result.warning) {
+          const consoleDiv = document.getElementById('console');
+          const p = document.createElement('p');
+          p.textContent = `${new Date().toLocaleTimeString()}: Warning: ${result.warning}`;
+          consoleDiv.appendChild(p);
+          consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        }
+      } else {
+        alert(`Failed to set CLIENT_ID: ${result.error}`);
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Confirm';
+      }
+    } catch (error) {
+      alert(`Error: ${error.message}`);
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = 'Confirm';
+    }
+  });
+  
+  defaultBtn.addEventListener('click', async () => {
+    try {
+      const result = await browser.runtime.sendMessage({
+        action: 'resetToDefaultClientId'
+      });
+      
+      if (result.success) {
+        updateClientIdStatus();
+        document.body.removeChild(overlay);
+      }
+    } catch (error) {
+      alert(`Error: ${error.message}`);
+    }
+  });
+  
+  cancelBtn.addEventListener('click', () => {
+    document.body.removeChild(overlay);
+  });
+  
+  // Close on overlay click
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      document.body.removeChild(overlay);
+    }
+  });
+  
+  // Assemble popup
+  buttonContainer.appendChild(confirmBtn);
+  buttonContainer.appendChild(defaultBtn);
+  buttonContainer.appendChild(cancelBtn);
+  
+  popup.appendChild(title);
+  popup.appendChild(description);
+  popup.appendChild(label);
+  popup.appendChild(input);
+  popup.appendChild(buttonContainer);
+  
+  overlay.appendChild(popup);
+  document.body.appendChild(overlay);
+  
+  // Focus input
+  input.focus();
+}
+
+document.getElementById('setClientIdButton').addEventListener('click', () => {
+  showClientIdPopup();
 });

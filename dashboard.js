@@ -57,27 +57,28 @@ function combineWordsToLength(targetLength, usedWords = []) {
   return word + combineWordsToLength(targetLength - length, usedWords);
 }
 
-// Get a random word with exact length, preserving case
+// Get a random word or digit with exact length, preserving case or type
 function getRandomWord(word) {
   const length = word.length;
   
-  // Handle single characters specially
+  // Handle single characters
   if (length === 1) {
     const char = word[0];
-    if (/[a-zA-Z]/.test(char)) {
+    if (/\d/.test(char)) {
+      // Generate random digit for single digit
+      return Math.floor(Math.random() * 10).toString();
+    } else if (/[a-zA-Z]/.test(char)) {
       // Generate random letter preserving case
       const isUpper = char === char.toUpperCase();
       const randomLetter = String.fromCharCode(97 + Math.floor(Math.random() * 26)); // a-z
       return isUpper ? randomLetter.toUpperCase() : randomLetter;
-    } else if (/\d/.test(char)) {
-      // Generate random digit
-      return Math.floor(Math.random() * 10).toString();
     } else {
       // Non-alphanumeric single character, return as-is
       return char;
     }
   }
   
+  // Handle multi-character words
   const words = safeWordsByLength[length];
   let randomWord;
   if (words && words.length > 0) {
@@ -95,13 +96,9 @@ function getRandomWord(word) {
   return result;
 }
 
-// Randomize digits while preserving length
+// Randomize digits in a string
 function randomizeDigits(text) {
-  return text.replace(/\d+/g, match => {
-    return Array.from(match)
-      .map(() => Math.floor(Math.random() * 10))
-      .join('');
-  });
+	return text.replace(/\d/g, () => Math.floor(Math.random() * 10).toString());
 }
 
 // Randomize a comment's text
@@ -109,14 +106,18 @@ async function randomizeComment(text) {
   if (!wordListLoaded) {
     await loadWordList();
   }
+  // Split text into words, digits, and other characters
   return text
-    .split(/\b/)
+    .split(/([0-9]+|[a-zA-Z]+|[^0-9a-zA-Z]+)/)
     .map(part => {
-      if (/^\w+$/.test(part)) {
+      if (/^[a-zA-Z]+$/.test(part)) {
+        // Replace words with random words of the same length
         return getRandomWord(part);
-      } else if (/\d+/.test(part)) {
+      } else if (/^[0-9]+$/.test(part)) {
+        // Replace digits with random digits of the same length
         return randomizeDigits(part);
       }
+      // Preserve non-alphanumeric characters
       return part;
     })
     .join('');
@@ -498,8 +499,8 @@ browser.runtime.onMessage.addListener((message) => {
     const clientIdStatusDiv = document.getElementById('clientIdStatus');
     if (clientIdStatusDiv) {
       const statusText = message.isDefault 
-      ? 'CLIENT_ID: Default'
-      : `CLIENT_ID: Custom (${message.preview})`;
+        ? 'CLIENT_ID: Default'
+        : `CLIENT_ID: Custom (${message.preview})`;
       clientIdStatusDiv.textContent = statusText;
     }
   }
@@ -815,7 +816,6 @@ document.getElementById('randomizeAllButton').addEventListener('click', async ()
       const originalComment = comment.body;
 	  
       try {
-		  
         const randomizedText = await randomizeComment(originalComment);
         // Send to Reddit first
         const editResponse = await browser.runtime.sendMessage({

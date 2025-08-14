@@ -113,7 +113,13 @@ function parseRedditComments() {
             a.click();
             URL.revokeObjectURL(url);
 
-            statusDiv.textContent = `Processed ${comments.length} comments. JSON file downloaded as ${outputFilename}.`;
+            // Load the generated JSON file into fileInput
+            const jsonFile = new File([jsonContent], outputFilename, { type: 'application/json' });
+            const dataTransfer = new DataTransfer();
+            dataTransfer.items.add(jsonFile);
+            fileInput.files = dataTransfer.files;
+
+            statusDiv.textContent = `Processed ${comments.length} comments. JSON file downloaded as ${outputFilename}`;
             convertButton.disabled = false;
         } catch (error) {
             statusDiv.textContent = `Error: ${error.message}`;

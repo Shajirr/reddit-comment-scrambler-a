@@ -54,17 +54,20 @@
     .controls label {
       margin: 5px;
     }
-    #status, #username {
-      margin: 5px 0;
-      padding: 8px;
-      background-color: #e9ecef;
-      border-radius: 3px;
-    }
+	#status, #username {
+	  margin: 5px 0;
+	  padding: 8px;
+	  background-color: #e9ecef;
+	  border-radius: 3px;
+	  margin-left: 0; /* Align with leftmost buttons */
+	}
+
 	#username {
 	  display: inline-block;
 	  width: 60%;
 	}
-    .client-id-status {
+
+	.client-id-status {
 	  margin: 5px 0;
 	  padding: 8px;
 	  background-color: #e9ecef;
@@ -73,20 +76,65 @@
 	  display: inline-block;
 	  float: right;
 	  width: auto;
+	  margin-right: 0; /* Align with right edge */
 	}
-    .api-counter-row {
-      display: flex;
-      align-items: center;
-      margin: 5px 0;
-      padding: 8px;
-      background-color: #e9ecef;
-      border-radius: 3px;
-    }
+
+	.api-counter-row {
+	  display: flex;
+	  align-items: center;
+	  margin: 5px 0;
+	  padding: 8px;
+	  background-color: #e9ecef;
+	  border-radius: 3px;
+	  margin-left: 0; /* Align with leftmost buttons */
+	}
+
     .api-counter-row button {
       margin-left: 10px;
       padding: 5px 10px;
       font-size: 12px;
     }
+    .file-import-section {
+      margin-bottom: 10px;
+      padding: 10px;
+      background-color: #fff;
+      border-radius: 5px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+      border-left: 4px solid #007bff;
+    }
+    .file-import-section h3 {
+      margin-top: 0;
+      margin-bottom: 10px;
+      color: #333;
+      font-size: 16px;
+    }
+    .file-import-section input[type="file"] {
+      margin: 5px;
+      padding: 5px;
+    }
+    .file-import-section button {
+      padding: 10px 20px;
+      margin: 5px;
+      cursor: pointer;
+      background-color: #28a745;
+      color: white;
+      border: none;
+      border-radius: 3px;
+    }
+    .file-import-section button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+	.file-import-status {
+	  margin: 5px 0;
+	  padding: 8px;
+	  background-color: #f8f9fa;
+	  border-radius: 3px;
+	  min-height: 20px;
+	  border: 1px solid #dee2e6;
+	  margin-left: 0; /* Align with leftmost buttons */
+	  text-align: left; /* Ensure left alignment of text */
+	}
     .dangerous-section {
       margin-bottom: 10px;
       padding: 10px;
@@ -311,6 +359,18 @@
     </div>
     </div>
   </div>
+  
+  <div class="file-import-section">
+    <h3>Load comments from a file</h3>
+    <div>
+      <input type="file" id="fileInput" accept=".html,.txt">
+    </div>
+    <div>
+      <button id="convertToJsonButton" disabled>Convert to JSON</button>
+    </div>
+    <div id="fileImportStatus" class="file-import-status">Select an HTML or TXT file to convert comments to JSON format.</div>
+  </div>
+  
   <div class="dangerous-section">
     <input type="checkbox" id="dangerousActionsConfirm">
     <label for="dangerousActionsConfirm">I understand that the following actions can make irreversible changes to my account,</br> 
@@ -346,5 +406,6 @@
   <div id="console"></div>
   <div id="comments"></div>
   <script src="dashboard.js"></script>
+  <script src="commentParser.js"></script>
 </body>
 </html>

@@ -25,6 +25,7 @@
   ],
   "web_accessible_resources": [
     "dashboard.html",
+	"commentParser.js",
     "wordlist.txt"
   ],
   "browser_specific_settings": {

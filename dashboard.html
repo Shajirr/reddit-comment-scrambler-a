@@ -212,6 +212,59 @@
     .comment p {
       margin: 4px 0;
     }
+    .comment-body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+        font-size: 14px;
+        line-height: 1.4;
+        color: #1a1a1b;
+        margin: 0.2em 0;
+    }
+    .comment-body p {
+        margin: 0.2em 0;
+    }
+    .comment-body br {
+        display: block;
+        content: "";
+        margin-bottom: 0.4em;
+    }
+    .comment-body blockquote {
+        border-left: 4px solid #d3d3d3;
+        padding: 0.2em 0 0.2em 1em; /* Adjusted padding for tighter spacing */
+        margin: 0.4em 0;
+        background-color: #f6f7f8; /* Light gray background like Reddit */
+        color: #65676b; /* Lighter text color for contrast */
+    }
+    .comment-body blockquote p {
+        margin: 0; /* Remove margin inside blockquote for compact look */
+    }
+    .comment-body a {
+        color: #0079d3;
+        text-decoration: none;
+    }
+    .comment-body a:hover {
+        text-decoration: underline;
+    }
+    .comment-body strong {
+        font-weight: 700;
+    }
+    .comment-body em {
+        font-style: italic;
+    }
+    .comment-body ul {
+        margin: 0.4em 0;
+        padding-left: 2em;
+        list-style-type: disc;
+    }
+    .comment-body .spoiler {
+        background: #1a1a1b;
+        color: transparent;
+        padding: 0 4px;
+        border-radius: 3px;
+        cursor: pointer;
+    }
+    .comment-body .spoiler:hover {
+        color: #fff;
+    }
     .randomizeButton {
       padding: 5px 10px;
       margin: 5px 0;
@@ -363,12 +416,13 @@
   <div class="file-import-section">
     <h3>Load comments from a file</h3>
     <div>
-      <input type="file" id="fileInput" accept=".html,.txt">
+      <input type="file" id="fileInput" accept=".html,.txt,.json">
     </div>
     <div>
       <button id="convertToJsonButton" disabled>Convert to JSON</button>
+      <button id="loadJsonButton" disabled>Load JSON Comments</button>
     </div>
-    <div id="fileImportStatus" class="file-import-status">Select an HTML or TXT file to convert comments to JSON format.</div>
+    <div id="fileImportStatus" class="file-import-status">Select an HTML/TXT file to convert to JSON format, or a JSON file to load comments directly.</div>
   </div>
   
   <div class="dangerous-section">

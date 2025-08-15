@@ -134,11 +134,5 @@ function parseRedditComments() {
     reader.readAsText(file);
 }
 
-// Enable/disable Convert button based on file selection
-document.getElementById('fileInput').addEventListener('change', function() {
-    const convertButton = document.getElementById('convertToJsonButton');
-    convertButton.disabled = !this.files.length;
-});
-
 // Attach event listener to Convert button
 document.getElementById('convertToJsonButton').addEventListener('click', parseRedditComments);

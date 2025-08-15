@@ -207,6 +207,7 @@ function clearLoadedComments() {
   consoleDiv.scrollTop = consoleDiv.scrollHeight;
   document.getElementById('exportButton').disabled = true;
 }
+
 // Update displayed comments
 function updateDisplayedComments() {
   const commentsDiv = document.getElementById('comments');
@@ -247,37 +248,60 @@ function updateDisplayedComments() {
     commentDiv.className = 'comment';
     commentDiv.setAttribute('data-comment-id', comment.id);
 
-    // Create comment header
-    const headerStrong = document.createElement('strong');
-    headerStrong.textContent = `Comment #${comment.index}`;
-    commentDiv.appendChild(headerStrong);
-    
-    const idText = document.createTextNode(` (ID: ${comment.id})`);
-    commentDiv.appendChild(idText);
-    commentDiv.appendChild(document.createElement('br'));
+    // Create comment header and posted date
+    const headerDiv = document.createElement('div');
+    headerDiv.style.display = 'flex';
+    headerDiv.style.justifyContent = 'space-between';
+    headerDiv.style.marginBottom = '5px';
 
-    // Create subreddit info
+    const headerStrong = document.createElement('strong');
+    headerStrong.textContent = `Comment #${comment.index} (ID: ${comment.id})`;
+    headerDiv.appendChild(headerStrong);
+
+    const postedSpan = document.createElement('span');
+    postedSpan.textContent = `Posted: ${comment.created}`;
+    postedSpan.style.marginLeft = 'auto';
+    headerDiv.appendChild(postedSpan);
+    commentDiv.appendChild(headerDiv);
+
+    // Create subreddit info and votes
+    const subredditVotesDiv = document.createElement('div');
+    subredditVotesDiv.style.display = 'flex';
+    subredditVotesDiv.style.justifyContent = 'space-between';
+    subredditVotesDiv.style.marginBottom = '5px';
+
     const subredditStrong = document.createElement('strong');
     subredditStrong.textContent = 'Subreddit:';
-    commentDiv.appendChild(subredditStrong);
-    
     const subredditText = document.createTextNode(` ${comment.subreddit}`);
-    commentDiv.appendChild(subredditText);
-    commentDiv.appendChild(document.createElement('br'));
+    subredditVotesDiv.appendChild(subredditStrong);
+    subredditVotesDiv.appendChild(subredditText);
 
-    // Create posted info
-    const postedStrong = document.createElement('strong');
-    postedStrong.textContent = 'Posted:';
-    commentDiv.appendChild(postedStrong);
-    
-    const postedText = document.createTextNode(` ${comment.created}`);
-    commentDiv.appendChild(postedText);
-    commentDiv.appendChild(document.createElement('br'));
+    if (typeof comment.votes !== 'undefined') {
+      const votesSpan = document.createElement('span');
+      votesSpan.style.marginLeft = 'auto';
+      const votesStrong = document.createElement('strong');
+      votesStrong.textContent = 'Votes:';
+      votesSpan.appendChild(votesStrong);
+      votesSpan.appendChild(document.createTextNode(` ${comment.votes}`));
+      subredditVotesDiv.appendChild(votesSpan);
+    }
+    commentDiv.appendChild(subredditVotesDiv);
+
+    // Add post title if available
+    if (comment.post_title) {
+      const postTitleStrong = document.createElement('strong');
+      postTitleStrong.textContent = 'Post:';
+      commentDiv.appendChild(postTitleStrong);
+      
+      const postTitleText = document.createTextNode(` ${comment.post_title}`);
+      commentDiv.appendChild(postTitleText);
+      commentDiv.appendChild(document.createElement('br'));
+    }
 
     // Create comment body
     const commentBodyP = document.createElement('p');
     commentBodyP.className = 'comment-body';
-    commentBodyP.textContent = comment.body; // Safe text assignment
+    parseRedditMarkdown(comment.body, commentBodyP);
     commentDiv.appendChild(commentBodyP);
 
     // Add saved label or randomize button
@@ -350,7 +374,255 @@ function updateDisplayedComments() {
   });
 }
 
-// Export comments to JSON
+// HTML-to-markdown conversion function
+function convertHtmlToRedditMarkdown(html) {
+  if (!html || typeof html !== 'string') return html;
+  
+  // Don't convert if it doesn't look like HTML
+  if (!html.includes('<') || !html.includes('>')) {
+    return html;
+  }
+  
+  let text = html;
+  
+  // Convert common HTML elements to Reddit markdown
+  // Blockquotes
+  text = text.replace(/<blockquote>\s*<p>\s*(.*?)\s*<\/p>\s*<\/blockquote>/gs, (match, content) => {
+    return content.split('\n').map(line => line.trim() ? `&gt; ${line.trim()}` : '').join('\n');
+  });
+  text = text.replace(/<blockquote>\s*(.*?)\s*<\/blockquote>/gs, (match, content) => {
+    return content.split('\n').map(line => line.trim() ? `&gt; ${line.trim()}` : '').join('\n');
+  });
+  
+  // Paragraphs - convert to double newlines
+  text = text.replace(/<\/p>\s*<p>/g, '\n\n');
+  text = text.replace(/<p\s*[^>]*>/g, '');
+  text = text.replace(/<\/p>/g, '\n\n');
+  
+  // Line breaks
+  text = text.replace(/<br\s*\/?>/g, '\n');
+  
+  // Bold text
+  text = text.replace(/<(strong|b)(\s[^>]*)?>(.*?)<\/(strong|b)>/gs, '**$3**');
+  
+  // Italic text
+  text = text.replace(/<(em|i)(\s[^>]*)?>(.*?)<\/(em|i)>/gs, '*$3*');
+  
+  // Links
+  text = text.replace(/<a\s+[^>]*href=['"]([^'"]*)['"][^>]*>(.*?)<\/a>/gs, '[$2]($1)');
+  
+  // Code blocks
+  text = text.replace(/<pre(\s[^>]*)?><code(\s[^>]*)?>(.*?)<\/code><\/pre>/gs, (match, p1, p2, code) => {
+    return '\n\n    ' + code.replace(/\n/g, '\n    ') + '\n\n';
+  });
+  
+  // Inline code
+  text = text.replace(/<code(\s[^>]*)?>(.*?)<\/code>/gs, '`$2`');
+  
+  // Lists
+  text = text.replace(/<ul(\s[^>]*)?>(.*?)<\/ul>/gs, (match, attrs, content) => {
+    return content.replace(/<li(\s[^>]*)?>(.*?)<\/li>/gs, '* $2\n');
+  });
+  text = text.replace(/<ol(\s[^>]*)?>(.*?)<\/ol>/gs, (match, attrs, content) => {
+    let counter = 1;
+    return content.replace(/<li(\s[^>]*)?>(.*?)<\/li>/gs, () => `${counter++}. $2\n`);
+  });
+  
+  // Remove remaining HTML tags
+  text = text.replace(/<[^>]*>/g, '');
+  
+  // Clean up whitespace
+  text = text.replace(/\n\s*\n\s*\n/g, '\n\n'); // Multiple newlines to double
+  text = text.replace(/^\s+|\s+$/g, ''); // Trim
+  
+  // Decode HTML entities
+  const entityMap = {
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&apos;': "'",
+    '&#39;': "'",
+    '&nbsp;': ' '
+  };
+  text = text.replace(/&(amp|lt|gt|quot|apos|#39|nbsp);/g, (match, entity) => {
+    return entityMap[`&${entity};`] || match;
+  });
+  
+  return text;
+}
+
+// Function to escape HTML characters to prevent XSS (excluding single quotes)
+function escapeHtml(unsafe) {
+    return unsafe
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+// Function to decode HTML entities (e.g., &gt; to >)
+function decodeHtmlEntities(text) {
+    const entities = {
+        '&gt;': '>',
+        '&lt;': '<',
+        '&amp;': '&',
+        '&quot;': '"',
+        '&#039;': "'",
+        '&apos;': "'"
+    };
+    return text.replace(/&gt;|&lt;|&amp;|&quot;|&#039;|&apos;/g, match => entities[match]);
+}
+
+// Function to create a text node with escaped content
+function createSafeTextNode(text) {
+    // Decode entities first, then escape only what's needed for safety
+    const decodedText = decodeHtmlEntities(text);
+    return document.createTextNode(decodedText);
+}
+
+// Function to parse inline Markdown and append to a parent element
+function parseInlineMarkdown(text, parentElement) {
+    let currentText = decodeHtmlEntities(text);
+    let index = 0;
+    let currentNode = parentElement;
+
+    while (index < currentText.length) {
+        // Handle spoilers (>!text!<)
+        const spoilerMatch = currentText.slice(index).match(/^>!(.+?)!</);
+        if (spoilerMatch) {
+            const spoilerText = spoilerMatch[1];
+            const spoilerSpan = document.createElement('span');
+            spoilerSpan.className = 'spoiler';
+            spoilerSpan.appendChild(createSafeTextNode(spoilerText));
+            currentNode.appendChild(spoilerSpan);
+            index += spoilerMatch[0].length;
+            continue;
+        }
+
+        // Handle bold (**text**)
+        const boldMatch = currentText.slice(index).match(/^\*\*([^\*]+)\*\*/);
+        if (boldMatch) {
+            const boldText = boldMatch[1];
+            const boldElement = document.createElement('strong');
+            boldElement.appendChild(createSafeTextNode(boldText));
+            currentNode.appendChild(boldElement);
+            index += boldMatch[0].length;
+            continue;
+        }
+
+        // Handle italic (*text*)
+        const italicMatch = currentText.slice(index).match(/^\*([^\*]+)\*/);
+        if (italicMatch) {
+            const italicText = italicMatch[1];
+            const italicElement = document.createElement('em');
+            italicElement.appendChild(createSafeTextNode(italicText));
+            currentNode.appendChild(italicElement);
+            index += italicMatch[0].length;
+            continue;
+        }
+
+        // Handle links ([text](url))
+        const linkMatch = currentText.slice(index).match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/);
+        if (linkMatch) {
+            const linkText = linkMatch[1];
+            const linkUrl = linkMatch[2];
+            const linkElement = document.createElement('a');
+            linkElement.href = linkUrl;
+            linkElement.appendChild(createSafeTextNode(linkText));
+            currentNode.appendChild(linkElement);
+            index += linkMatch[0].length;
+            continue;
+        }
+
+        // Handle plain text
+        const nextMatch = currentText.slice(index).search(/>!|\*\*|\*|\[.*?\]\(/);
+        const endIndex = nextMatch === -1 ? currentText.length : index + nextMatch;
+        if (endIndex > index) {
+            const plainText = currentText.slice(index, endIndex);
+            currentNode.appendChild(createSafeTextNode(plainText));
+            index = endIndex;
+        } else {
+            index++;
+        }
+    }
+}
+
+// Function to parse Reddit Markdown and build DOM structure
+function parseRedditMarkdown(text, parentElement) {
+    const lines = decodeHtmlEntities(text).split('\n');
+    let inList = false;
+    let inBlockquote = false;
+    let currentList = null;
+    let currentBlockquote = null;
+
+    for (let line of lines) {
+        line = line.trim();
+        if (!line) {
+            if (inList) {
+                parentElement.appendChild(currentList);
+                inList = false;
+                currentList = null;
+            }
+            if (inBlockquote) {
+                parentElement.appendChild(currentBlockquote);
+                inBlockquote = false;
+                currentBlockquote = null;
+            }
+            const p = document.createElement('p');
+            parentElement.appendChild(p);
+            continue;
+        }
+
+        // Handle blockquotes
+        if (line.startsWith('>')) {
+            if (!inBlockquote) {
+                currentBlockquote = document.createElement('blockquote');
+                inBlockquote = true;
+            }
+            line = line.slice(1).trim();
+            const p = document.createElement('p');
+            parseInlineMarkdown(line, p);
+            currentBlockquote.appendChild(p);
+            continue;
+        } else if (inBlockquote) {
+            parentElement.appendChild(currentBlockquote);
+            inBlockquote = false;
+            currentBlockquote = null;
+        }
+
+        // Handle lists
+        if (line.match(/^[-*]\s/)) {
+            if (!inList) {
+                currentList = document.createElement('ul');
+                inList = true;
+            }
+            line = line.replace(/^[-*]\s/, '');
+            const li = document.createElement('li');
+            parseInlineMarkdown(line, li);
+            currentList.appendChild(li);
+            continue;
+        } else if (inList) {
+            parentElement.appendChild(currentList);
+            inList = false;
+            currentList = null;
+        }
+
+        // Handle paragraphs
+        const p = document.createElement('p');
+        parseInlineMarkdown(line, p);
+        parentElement.appendChild(p);
+    }
+
+    // Close any open elements
+    if (inList && currentList) {
+        parentElement.appendChild(currentList);
+    }
+    if (inBlockquote && currentBlockquote) {
+        parentElement.appendChild(currentBlockquote);
+    }
+}
+
+// Export comments to JSON file
 function exportComments(comments, filenamePrefix) {
   const consoleDiv = document.getElementById('console');
   if (comments.length === 0) {
@@ -375,6 +647,75 @@ function exportComments(comments, filenamePrefix) {
   consoleDiv.appendChild(p);
   consoleDiv.scrollTop = consoleDiv.scrollHeight;
   return true;
+}
+
+// Load comments from a JSON file 
+async function loadJsonComments() {
+  const fileInput = document.getElementById('fileInput');
+  const file = fileInput.files[0];
+  const consoleDiv = document.getElementById('console');
+  const exportButton = document.getElementById('exportButton');
+
+  if (!file) {
+    const p = document.createElement('p');
+    p.textContent = `${new Date().toLocaleTimeString()}: Error: No file selected`;
+    consoleDiv.appendChild(p);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+    return;
+  }
+
+  if (!file.name.toLowerCase().endsWith('.json')) {
+    const p = document.createElement('p');
+    p.textContent = `${new Date().toLocaleTimeString()}: Error: Please select a JSON file`;
+    consoleDiv.appendChild(p);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+    return;
+  }
+
+  try {
+    const text = await file.text();
+    const jsonData = JSON.parse(text);
+    
+    // Ensure it's an array
+    const comments = Array.isArray(jsonData) ? jsonData : [jsonData];
+    
+    // Validate and normalize comment structure
+    const normalizedComments = comments.map((comment, index) => {
+      if (!comment.id || !comment.body) {
+        throw new Error(`Invalid comment structure at index ${index}: missing id or body`);
+      }
+      
+      return {
+        id: comment.id,
+        body: convertHtmlToRedditMarkdown(comment.body),
+        subreddit: comment.subreddit || 'unknown',
+        created: comment.created || 'Unknown date',
+        created_utc: comment.created_utc || 0,
+        index: comment.index || (index + 1),
+        isSaved: comment.isSaved || false,
+        post_id: comment.post_id,
+        post_title: comment.post_title,
+        votes: comment.votes
+      };
+    });
+
+    // Clear existing comments and add new ones
+    allComments = normalizedComments;
+    filteredComments = allComments;
+    updateDisplayedComments();
+    exportButton.disabled = false;
+
+    const p = document.createElement('p');
+    p.textContent = `${new Date().toLocaleTimeString()}: Successfully loaded ${normalizedComments.length} comments from JSON file`;
+    consoleDiv.appendChild(p);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+
+  } catch (error) {
+    const p = document.createElement('p');
+    p.textContent = `${new Date().toLocaleTimeString()}: Error loading JSON file: ${error.message}`;
+    consoleDiv.appendChild(p);
+    consoleDiv.scrollTop = consoleDiv.scrollHeight;
+  }
 }
 
 // Update API request counter display
@@ -576,7 +917,8 @@ document.getElementById('fetchButton').addEventListener('click', async () => {
     const response = await browser.runtime.sendMessage({
       action: 'fetchComments',
       maxComments: maxComments,
-      afterCommentId: afterCommentFilter ? afterCommentInput : null
+      afterCommentId: afterCommentFilter ? afterCommentInput : null,
+      includeMetadata: true
     });
     if (response && !response.success && response.error) {
       throw new Error(response.error);
@@ -690,7 +1032,8 @@ document.getElementById('loadCommentByIdButton').addEventListener('click', async
 	
     const response = await browser.runtime.sendMessage({
       action: 'fetchCommentById',
-      commentId: commentId
+      commentId: commentId,
+      includeMetadata: true
     });
 	
     console.log("Received response from background:", response);
@@ -1170,4 +1513,21 @@ function showClientIdPopup() {
 
 document.getElementById('setClientIdButton').addEventListener('click', () => {
   showClientIdPopup();
+});
+
+// Event listener for Load JSON button
+document.getElementById('loadJsonButton').addEventListener('click', loadJsonComments);
+
+// Enable/disable Convert/Load buttons based on file selection
+document.getElementById('fileInput').addEventListener('change', function() {
+    const convertButton = document.getElementById('convertToJsonButton');
+    const loadJsonButton = document.getElementById('loadJsonButton');
+    const hasFile = this.files.length > 0;
+    const fileName = hasFile ? this.files[0].name.toLowerCase() : '';
+    
+    // Enable Convert button for HTML/TXT files
+    convertButton.disabled = !hasFile || (!fileName.endsWith('.html') && !fileName.endsWith('.txt'));
+    
+    // Enable Load JSON button for JSON files
+    loadJsonButton.disabled = !hasFile || !fileName.endsWith('.json');
 });

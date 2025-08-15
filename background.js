@@ -601,7 +601,7 @@ async function checkCommentExists(commentId) {
   }
 }
 // Fetch a single comment by ID
-async function fetchCommentById(accessToken, commentId) {
+async function fetchCommentById(accessToken, commentId, includeMetadata = false) {
   console.log("Fetching comment with ID:", commentId);
   await incrementApiRequestCounter();
   try {
@@ -633,7 +633,11 @@ async function fetchCommentById(accessToken, commentId) {
       created: new Date(commentData.created_utc * 1000).toLocaleString(),
       created_utc: commentData.created_utc,
       index: 1, // Single comment, assign index 1
-      isSaved: commentData.saved
+      isSaved: commentData.saved,
+      ...(includeMetadata && {
+        votes: commentData.score,
+        post_title: commentData.link_title
+      })
     };
     console.log(`Fetched comment with ID: ${commentId}, isSaved: ${comment.isSaved}`);
     await sendStatusMessage(`Fetched comment with ID: ${commentId}`);
@@ -686,7 +690,7 @@ async function deleteComment(accessToken, commentId) {
 }
 
 // Fetch user comments
-async function fetchComments(accessToken, maxComments, afterCommentId) {
+async function fetchComments(accessToken, maxComments, afterCommentId, includeMetadata = false) {
   const { username } = await browser.storage.local.get("username");
   if (!username) {
     console.error("No username found in storage");
@@ -737,7 +741,11 @@ async function fetchComments(accessToken, maxComments, afterCommentId) {
           created: new Date(comment.data.created_utc * 1000).toLocaleString(),
           created_utc: comment.data.created_utc,
           index: allComments.length + index + 1, // 1-based index
-          isSaved: comment.data.saved
+          isSaved: comment.data.saved,
+          ...(includeMetadata && {
+            votes: comment.data.score,
+            post_title: comment.data.link_title
+          })
         }));
       allComments = allComments.concat(comments);
       console.log(`Fetched ${comments.length} comments, total: ${allComments.length}`);
@@ -861,7 +869,7 @@ browser.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
         });
         return { success: false, error: errorMsg };
       }
-      const result = await fetchComments(accessToken, message.maxComments, message.afterCommentId);
+      const result = await fetchComments(accessToken, message.maxComments, message.afterCommentId, message.includeMetadata);
       return { success: true, result: result };
     } catch (error) {
       console.error("Fetch comments error:", error.message);
@@ -884,7 +892,7 @@ browser.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
         });
         return { success: false, error: errorMsg };
       }
-      const comment = await fetchCommentById(accessToken, message.commentId);
+      const comment = await fetchCommentById(accessToken, message.commentId, message.includeMetadata);
       await browser.tabs.sendMessage(dashboardTabId, {
         action: "addComments",
         allComments: [comment]
